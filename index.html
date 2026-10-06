@@ -1785,6 +1785,7 @@ function saveQuestion(q) {
   dirtyQ.add(q.id);
   scheduleFlush();
   schedulePush();
+  invalidateStorageCache();
 }
 async function deleteQuestion(id) {
   questions = questions.filter(q => q.id !== id);
@@ -1794,6 +1795,7 @@ async function deleteQuestion(id) {
   }
   if (useIDB) { try { await idbDelete('questions', id); } catch (e) { console.warn(e); } }
   schedulePush();
+  invalidateStorageCache();
 }
 async function getMeta(key) { if (!useIDB) return null; try { const r = await idbGet('meta', key); return r ? r.value : null; } catch { return null; } }
 async function setMeta(key, value) { if (!useIDB) return; try { await idbPut('meta', { key, value }); } catch (e) { console.warn(e); } }
@@ -2362,24 +2364,31 @@ async function ocrWithPaddle(file) {
 /* ============ 多图 OCR ============ */
 async function processAllImages() {
   const s = state.collect;
-  if (s.busy) return;
-  if (!s.images.length) return;
-
+  if (s.busy) return;   // 已有一轮在处理，新图会被现有循环接住
   s.busy = true;
   renderView();
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-  for (let i = 0; i < s.images.length; i++) {
+  let i = 0;
+  while (i < s.images.length) {
     const img = s.images[i];
-    if (img.status === 'done') continue;
-    img.idx = i;
+    if (img.status === 'done' || img.status === 'error') { i++; continue; }
+
+    // 更新该图为"识别中"
+    img.status = 'ocr';
+    updateImageStatusDOM(img);
+    updateOcrProgressText();
+
     await processOneImage(img, i);
-    renderView();
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    // 识别完成 → 只更新该图的局部状态
+    updateImageStatusDOM(img);
+    updateOcrProgressText();
+
+    i++;
   }
 
   s.busy = false;
-  // 清空 parsedList，让用户重新结构化（因为文本变了）
   s.parsedList = [];
   renderView();
 
@@ -2389,18 +2398,43 @@ async function processAllImages() {
   }, 100);
 }
 
-async function processOneImage(img, idx) {
-  img.status = 'ocr';
-  const setStatus = (html) => {
-    const st = document.getElementById('ocrStatus');
-    if (st) st.innerHTML = html;
+/* 只更新单张缩略图的识别状态，不整页重渲染 */
+function updateImageStatusDOM(img) {
+  const el = document.querySelector(`[data-img-id="${img.id}"] .img-status`);
+  if (!el) return;
+  const map = {
+    done: { text: '✓ 已识别', color: 'var(--success)' },
+    error: { text: '✗ 失败', color: 'var(--danger)' },
+    ocr: { text: '识别中…', color: 'var(--primary)' },
+    pending: { text: '待识别', color: 'var(--text-3)' }
   };
+  const cfg = map[img.status] || map.pending;
+  el.textContent = cfg.text;
+  el.style.color = cfg.color;
+}
+
+/* 更新顶部"识别中 X/Y"提示 */
+function updateOcrProgressText() {
+  const s = state.collect;
+  const statusEl = document.getElementById('ocrStatus');
+  if (!statusEl) return;
+  const done = s.images.filter(i => i.status === 'done').length;
+  const total = s.images.length;
+  if (s.busy) {
+    statusEl.innerHTML = `<span class="spinner"></span>识别中… ${done}/${total}`;
+  } else if (done === total && total > 0) {
+    statusEl.innerHTML = `✅ 全部识别完成（${total} 张）`;
+  } else {
+    statusEl.innerHTML = '';
+  }
+}
+
+async function processOneImage(img, idx) {
   const total = state.collect.images.length;
   const prefix = total > 1 ? `第 ${idx + 1}/${total} 张 · ` : '';
 
   /* 首选 PaddleOCR */
   if (canUsePaddle() && !_paddleFailed) {
-    setStatus(`<span class="spinner"></span>${prefix}PaddleOCR 识别中…`);
     try {
       const t0 = performance.now();
       img.ocrText = await ocrWithPaddle(img.file);
@@ -2413,7 +2447,6 @@ async function processOneImage(img, idx) {
   }
 
   /* 降级 Tesseract */
-  setStatus(`<span class="spinner"></span>${prefix}Tesseract 识别中…`);
   try {
     const { data: { text } } = await Tesseract.recognize(img.file, 'chi_sim');
     img.ocrText = text || '';
@@ -2514,11 +2547,11 @@ function renderCollect(view) {
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:10px">
             ${s.images.map((img, i) => `
-              <div style="position:relative;width:130px;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--bg)">
+              <div data-img-id="${img.id}" style="position:relative;width:130px;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--bg)">
                 <img src="${img.dataUrl}" style="width:100%;height:90px;object-fit:cover;display:block">
                 <div style="padding:6px 8px;font-size:11px;color:var(--text-2);display:flex;align-items:center;justify-content:space-between;gap:4px">
                   <span>#${i + 1}</span>
-                  <span style="font-weight:700;color:${
+                  <span class="img-status" style="font-weight:700;color:${
                     img.status === 'done' ? 'var(--success)'
                     : img.status === 'error' ? 'var(--danger)'
                     : img.status === 'ocr' ? 'var(--primary)'
@@ -2532,8 +2565,8 @@ function renderCollect(view) {
                 </div>
                 <button data-del-img="${img.id}" title="删除这张图"
                   style="position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;
-                         border:none;background:rgba(220,38,38,0.9);color:#fff;cursor:pointer;
-                         font-weight:800;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">×</button>
+                        border:none;background:rgba(220,38,38,0.9);color:#fff;cursor:pointer;
+                        font-weight:800;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">×</button>
               </div>
             `).join('')}
           </div>
@@ -2734,9 +2767,9 @@ function bindCollectEvents() {
       r.readAsDataURL(f);
     }))).then(items => {
       items.filter(Boolean).forEach(it => s2.images.push(it));
-      renderView();
-      // 稍等一帧后开始 OCR
-      setTimeout(() => processAllImages(), 100);
+      renderView();   // 立即显示缩略图（状态"待识别"）
+      // 触发 OCR（如果已有循环在跑，会自然接住新图）
+      setTimeout(() => processAllImages(), 30);
     });
   };
 
@@ -5902,8 +5935,13 @@ function fmtBytes(b) {
 
 async function estimateIndexedDBSize() {
   try {
-    const json = JSON.stringify(questions) + JSON.stringify(settings || {});
-    return new Blob([json]).size;
+    // 用缓存值 + 新增题目的估算，避免每次全量序列化
+    const base = _cachedStorage.idbSize || 0;
+    if (!base) {
+      const json = JSON.stringify(questions) + JSON.stringify(settings || {});
+      return new Blob([json]).size;
+    }
+    return base;
   } catch { return 0; }
 }
 
@@ -5950,6 +5988,8 @@ async function clearOcrCache() {
   }
 }
 
+let _cachedStorage = { idbSize: 0, cacheSize: 0, ts: 0 };
+
 async function updateStatusChip() {
   const chip = document.getElementById('statusChip');
   const foot = document.getElementById('footerNote');
@@ -5962,24 +6002,37 @@ async function updateStatusChip() {
   }
 
   chip.className = 'status-chip';
-  chip.innerHTML = '<span class="dot"></span><span>计算中…</span>';
 
-  try {
-    const [idbSize, cacheSize] = await Promise.all([
-      estimateIndexedDBSize(),
-      estimateCacheSize()
-    ]);
-    chip.innerHTML = `
-      <span class="dot"></span>
-      <span>IDB ${questions.length}题 · ${fmtBytes(idbSize)}</span>
-      <span style="opacity:.4;margin:0 3px">|</span>
-      <span>Model ${fmtBytes(cacheSize)}</span>
-    `;
-  } catch {
-    chip.innerHTML = `<span class="dot"></span><span>IDB ${questions.length} 题</span>`;
+  // 5 分钟内的缓存直接复用，不重新计算（避免闪烁）
+  const cacheFresh = _cachedStorage.ts && (Date.now() - _cachedStorage.ts < 5 * 60 * 1000);
+  if (!cacheFresh) {
+    // 首次或缓存过期 → 先显示占位，避免闪成"计算中"
+    if (!_cachedStorage.ts) {
+      chip.innerHTML = `<span class="dot"></span><span>IDB ${questions.length}题</span>`;
+    }
+    try {
+      const [idbSize, cacheSize] = await Promise.all([
+        estimateIndexedDBSize(),
+        estimateCacheSize()
+      ]);
+      _cachedStorage = { idbSize, cacheSize, ts: Date.now() };
+    } catch {}
   }
 
+  const { idbSize, cacheSize } = _cachedStorage;
+  chip.innerHTML = `
+    <span class="dot"></span>
+    <span>IDB ${questions.length}题 · ${fmtBytes(idbSize)}</span>
+    <span style="opacity:.4;margin:0 3px">|</span>
+    <span>Cache ${fmtBytes(cacheSize)}</span>
+  `;
+
   if (foot) foot.textContent = `错题库保存在本机 IndexedDB · 定期导出备份`;
+}
+
+/* 强制刷新存储缓存（数据变化时调用） */
+function invalidateStorageCache() {
+  _cachedStorage.ts = 0;
 }
 
 /* ============ 全局粘贴 ============ */
@@ -5996,9 +6049,7 @@ document.addEventListener('paste', e => {
   }
   if (!files.length) return;
   e.preventDefault();
-  const drop = document.getElementById('dropZone');
-  const fileInput = document.getElementById('ocrFile');
-  // 直接复用页面上的上传逻辑
+
   const s2 = state.collect;
   Promise.all(files.map(f => new Promise(res => {
     const r = new FileReader();
@@ -6010,8 +6061,8 @@ document.addEventListener('paste', e => {
     r.readAsDataURL(f);
   }))).then(items2 => {
     items2.filter(Boolean).forEach(it => s2.images.push(it));
-    renderView();
-    setTimeout(() => processAllImages(), 100);
+    renderView();   // 立即显示缩略图
+    setTimeout(() => processAllImages(), 30);
   });
 });
 
