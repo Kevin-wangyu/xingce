@@ -1948,6 +1948,26 @@ async function syncNow() {
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const renderStem = stem => esc(stem || '').replace(/(_{2,}|＿{2,}|—{2,}|-{3,})/g, '<span style="color:var(--primary);font-weight:700">____</span>');
+
+/* 导出错题库为 JSON */
+function exportBackup() {
+  if (!questions.length) {
+    showToast('当前没有数据');
+    return;
+  }
+  try {
+    const blob = new Blob([JSON.stringify(questions, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `行测错题库_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('已导出备份');
+  } catch (e) {
+    alert('导出失败：' + e.message);
+  }
+}
+
 /* 去掉选项内容里 AI 偶发带入的 "A." "A、" "（A）" 等前缀 */
 function stripOptionPrefix(s) {
   return String(s == null ? '' : s)
@@ -1955,6 +1975,27 @@ function stripOptionPrefix(s) {
     .replace(/^[（(【\[]\s*[A-Da-d]\s*[）)】\]]\s*[\.、:：,，]?\s*/, '')
     .replace(/^[A-Da-d]\s*[\.、:：,，\)）]\s*/, '')
     .trim();
+}
+
+/* 去除题干开头的题号（如 "12." "15、" "115．" "二、"） */
+function stripStemPrefix(stem) {
+  if (!stem) return '';
+  let s = String(stem).trim();
+  let prev = '';
+  let iter = 0;
+  while (prev !== s && iter < 4) {
+    prev = s;
+    // 数字 + 分隔符：12. / 15、 / 115． / 12: / 12：
+    s = s.replace(/^\d{1,4}\s*[\.、．:：。]\s*/, '');
+    // 括号数字：[12] / (15) / 【12】 / （15）—— 只在后面跟分隔符或空格时删，避免误删语句排序题
+    s = s.replace(/^[\(\[（【]\s*\d{1,4}\s*[\)\]）】]\s*[\.、．:：]\s*/, '');
+    // 中文数字 + 分隔符：一、 二. 三：
+    s = s.replace(/^[一二三四五六七八九十]{1,3}\s*[\.、．:：。]\s*/, '');
+    // "第12题：" / "第12题." 等
+    s = s.replace(/^第\s*\d{1,4}\s*[题小]\s*[\.、．:：]?\s*/, '');
+    iter++;
+  }
+  return s.trim();
 }
 
 /* ============ 题目去重 ============ */
@@ -2141,6 +2182,7 @@ ${categoryBlock}
       "stem": "完整题干；逻辑填空的空缺处用 ____ 表示；语句排序题保留句子序号 (1)(2)(3) 格式",
       "options": ["A选项内容","B选项内容","C选项内容","D选项内容"],
       "correctIdx": 0,
+      "answerConfidence": "explicit",
       "module": "言语理解|数量关系|判断推理|资料分析|常识判断|政治理论 之一",
       "type": "该模块下的题型",
       "knowledgePoints": ["知识点1","知识点2"],
@@ -2151,6 +2193,8 @@ ${categoryBlock}
 }
 
 关键规则：
+0. **题干清理**：题干开头的题号（如"12." "15、" "115．" "二、" "第3题："）必须去掉，stem 以正文开始。
+   注意区分：语句排序题的 (1)(2)(3) 是**内容编号**不能删；题号是"(12)"或"12."且后面紧跟题目正文。
 1. **多段内容**：OCR 文本可能来自多张图片，用"【第N段】"分隔。
    - 如果多段内容**属于同一道题**（如第1段是材料，第2段是题目），请把它们**合并成一道题的完整题干**：材料放前面，问题放后面，中间用换行。
    - 如果多段内容**包含多道题**（如资料分析一拖五：一段材料 + 5 个小题），请为每道小题输出一个对象，**每道题的 stem 都包含前面的材料 + 该小题的题干**。虽然题干看起来长，但这样每道题都是自包含的。
@@ -2158,12 +2202,14 @@ ${categoryBlock}
 2. **语句排序题**（言语理解-语句排序）：题干会包含 (1)(2)(3)(4)(5)(6) 形式排列的句子，选项形如 A. (1)(2)(3)(4) 这样的排列组合。**必须完整保留句子序号和选项排列**，不要漏掉任何数字。
 3. **逻辑填空**：题干横线用 ____ 表示，选项通常是 2-4 字的词语或成语。
 4. options 必须 4 个，不带 "A." "B." 前缀。
-5. **correctIdx 判断（最高优先级规则）**：
-   - 只有当 OCR 文本里**明确出现"答案"、"正确答案"、"应选"等字样**，且后跟字母或"XX 项"时，才据此填写。
-   - 例如文本中出现"答案为 B"→填 1；"应选 C 项"→填 2。
-   - **绝不允许根据"语义正确性"自行推断答案**。哪怕你觉得 B 选项内容更合理，只要 OCR 里没写，就必须填 -1。
-   - 没有任何答案线索时**一律填 -1**，让用户手动确认。
-   - 这条规则的优先级高于其他所有规则。
+5. **correctIdx 判断**：
+   - **优先**：OCR 文本里明确出现"答案""正确答案""应选"等字样且后跟字母/项时，据此填写，answerConfidence 填 "explicit"。
+     例如"答案为 B"→correctIdx=1，answerConfidence="explicit"。
+   - **其次**：没有明确答案时，**必须根据语义、逻辑、常识推断最可能的正确答案**，填 correctIdx，answerConfidence 填 "inferred"。
+     推断时优先使用：题目类型规律、常见错误选项特征、选项间逻辑关系、学科常识。
+   - **最后**：只有在完全无法判断（如选项缺失、OCR 严重乱码）时，才填 -1。
+   - 返回字段新增："answerConfidence": "explicit" | "inferred" | "unknown"。
+   - 如果 user prompt 或题干里写了"正确答案是X"，视为 explicit。
 6. knowledgePoints：2-4 个，具体可复用（如"转折关系""搭桥""主题词识别""排列组合"），不要填模块名或题型名。
 7. 只返回 JSON，不要 markdown 代码块，不要解释性文字。
 8. 如果 OCR 文本完全不像题目（乱码、纯噪音），返回 {"error":"原因"}。`;
@@ -2207,9 +2253,12 @@ function normalizeParsedQuestion(q) {
   const opts = Array.isArray(q.options) ? q.options.map(s => stripOptionPrefix(s)) : [];
   while (opts.length < 4) opts.push('');
   return {
-    stem: String(q.stem).trim(),
+    stem: stripStemPrefix(q.stem),
     options: opts.slice(0, 4),
     correctIdx: Number.isInteger(q.correctIdx) ? q.correctIdx : -1,
+    answerConfidence: ['explicit','inferred','unknown'].includes(q.answerConfidence)
+      ? q.answerConfidence
+      : (Number.isInteger(q.correctIdx) && q.correctIdx >= 0 ? 'inferred' : 'unknown'),
     module: MODULES.includes(q.module) ? q.module : MODULES[0],
     type: String(q.type || '').trim(),
     knowledgePoints: (Array.isArray(q.knowledgePoints) ? q.knowledgePoints : [])
@@ -2491,11 +2540,7 @@ function renderCollect(view) {
         </div>
       ` : ''}
 
-      ${s.busy ? `
-        <div style="margin-top:12px">
-          <div class="status-line"><span class="spinner"></span>正在依次识别…</div>
-        </div>
-      ` : (s.images.length && s.images.some(img => img.status === 'done') ? `
+      ${!s.busy && s.images.length && s.images.some(img => img.status === 'done') ? `
         <div style="margin-top:12px">
           <button class="btn primary" id="aiBtn" ${!hasKey ? 'disabled title="请先到设置页配置 API Key"' : ''}>
             🤖 AI 结构化并归类${s.images.length > 1 ? `（共 ${s.images.length} 张图）` : ''}
@@ -2503,7 +2548,7 @@ function renderCollect(view) {
           <button class="btn ghost" id="clearBtn" style="margin-left:8px">清空重来</button>
           <span class="status-line" id="aiStatus" style="margin-left:12px"></span>
         </div>
-      ` : '')}
+      ` : ''}
 
       <div class="status-line" id="ocrStatus"></div>
       <div id="ocrEngineLabel" style="font-size:11px;color:var(--text-3);margin-top:6px;line-height:1.6">
@@ -2586,9 +2631,15 @@ function renderCollect(view) {
 function renderParsedCard(p, qi) {
   const typeOptions = CATEGORIES[p.module] || [];
   const knownType = typeOptions.includes(p.type) ? p.type : typeOptions[0];
-  const answerTag = p.correctIdx >= 0
-    ? `<span class="tag success">答案 ${String.fromCharCode(65 + p.correctIdx)}</span>`
-    : `<span class="tag warn" style="animation:pulse 2s infinite">⚠️ 请手动选答案</span>`;
+  const answerLetter = p.correctIdx >= 0 ? String.fromCharCode(65 + p.correctIdx) : '';
+  let answerTag;
+  if (p.correctIdx < 0) {
+    answerTag = `<span class="tag warn" style="animation:pulse 2s infinite">⚠️ 请手动选答案</span>`;
+  } else if (p.answerConfidence === 'explicit') {
+    answerTag = `<span class="tag success" title="OCR 中有明确答案标记">答案 ${answerLetter}</span>`;
+  } else {
+    answerTag = `<span class="tag" style="background:var(--warn-soft);color:var(--warn)" title="AI 根据语义推断，请核对">🤖 推断答案 ${answerLetter}</span>`;
+  }
 
   return `
     <details ${qi === 0 ? 'open' : ''} class="parsed-card" data-qi="${qi}" style="margin-top:12px;border:1px solid var(--border);border-radius:10px;overflow:hidden">
@@ -2869,7 +2920,7 @@ function bindCollectEvents() {
       const p = s.parsedList[qi];
       if (!p) return;
 
-      const stem = card.querySelector('[data-field="stem"]').value.trim();
+      const stem = stripStemPrefix(card.querySelector('[data-field="stem"]').value);
       const options = [0,1,2,3].map(i => stripOptionPrefix(card.querySelector(`[data-field="opt-${i}"]`).value.trim()));
       const correctIdx = parseInt(card.querySelector('[data-field="correct"]').value);
       const module = card.querySelector('[data-field="module"]').value;
@@ -2911,7 +2962,9 @@ function bindCollectEvents() {
     });
 
     const finalize = (savedCount, skippedCount, overwrittenCount) => {
-      s.imageUrl = ''; s.ocrText = ''; s.parsedList = [];
+      s.images = [];
+      s.parsedList = [];
+      s.busy = false;
       renderView();
       let tip = `已保存 ${savedCount} 题`;
       if (overwrittenCount) tip += ` · 覆盖 ${overwrittenCount} 题`;
@@ -3116,8 +3169,24 @@ function renderSettings(view) {
             <code>1-4</code> 选项 · <code>Enter</code> 下一题
           </div>
           <div class="about-feature">
+            <b>🔀 快速切换</b>
+            <code>F1</code>-<code>F4</code> 切换收录/考试/查看/分析
+          </div>
+          <div class="about-feature">
+            <b>🔍 打开搜索</b>
+            <code>Ctrl/Cmd + K</code> 跳到错题查看并聚焦搜索
+          </div>
+          <div class="about-feature">
+            <b>☁️ 立即同步</b>
+            <code>Ctrl/Cmd + S</code> 同步到 Gist
+          </div>
+          <div class="about-feature">
+            <b>💾 导出备份</b>
+            <code>Ctrl/Cmd + E</code> 下载 JSON
+          </div>
+          <div class="about-feature">
             <b>↩️ 快速返回</b>
-            <code>Esc</code> 从详情页返回列表
+            <code>Esc</code> 从详情页/设置页返回
           </div>
           <div class="about-feature">
             <b>💾 备份建议</b>
@@ -3155,14 +3224,7 @@ function renderSettings(view) {
   });
 
   const elExport = view.querySelector('#exportBtn');
-  if (elExport) elExport.addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(questions, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `行测错题库_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  });
+  if (elExport) elExport.addEventListener('click', exportBackup);
 
   const elClearCache = view.querySelector('#clearCacheBtn');
   if (elClearCache) elClearCache.addEventListener('click', async () => {
@@ -4657,6 +4719,12 @@ function renderBrowseEdit(view, q) {
         <button class="btn ghost sm" id="edit-cancel">← 取消</button>
         <div style="flex:1"></div>
         <span class="tag primary">编辑模式</span>
+        <button class="btn primary sm" id="edit-save-top">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          保存修改
+        </button>
       </div>
 
       <div style="margin-top:14px">
@@ -4773,43 +4841,65 @@ function renderBrowseEdit(view, q) {
   });
 
   // 保存
-  view.querySelector('#edit-save').addEventListener('click', () => {
+  const doSave = () => {
+    // 先收集并校验（失败直接 return，不动状态）
     const stem = view.querySelector('#e-stem').value.trim();
     if (!stem) { alert('题干不能为空'); return; }
-    const options = [0,1,2,3].map(i => stripOptionPrefix(view.querySelector('#e-opt-' + i).value.trim()));
+    const options = [0,1,2,3].map(i => view.querySelector('#e-opt-' + i).value.trim());
     if (options.some(o => !o)) { alert('四个选项都要填'); return; }
     const correctIdx = parseInt(view.querySelector('#e-correct').value);
     if (correctIdx < 0 || correctIdx > 3) { alert('请选择正确答案'); return; }
     const module = view.querySelector('#e-module').value;
     const type = view.querySelector('#e-type').value;
     if (!module || !type) { alert('请选择模块和题型'); return; }
-    if (!d.kpDraft.length) { alert('至少填一个知识点'); return; }
+    if (!d.kpDraft || !d.kpDraft.length) { alert('至少填一个知识点'); return; }
     const originalExplanation = view.querySelector('#e-expl').value.trim();
     const source = view.querySelector('#e-source').value.trim();
 
-    const stemChanged = stem !== q.stem;
-
-    q.stem = stem;
-    q.options = options;
-    q.correctIdx = correctIdx;
-    q.module = module;
-    q.type = type;
-    q.knowledgePoints = d.kpDraft.slice();
-    q.originalExplanation = originalExplanation;
-    q.source = source;
-
-    // 题干变了 → 旧的 AI 分析失效，清空让用户重新生成
-    if (stemChanged) {
-      q.aiEasyMistake = '';
-      q.aiBetterSolution = '';
-    }
-
-    saveQuestion(q);
+    // 校验通过 → 立即重置状态（无论后面怎么报错，返回列表都不会再弹"放弃修改"）
     state.browse.editing = false;
     state.browse.editDraft = null;
+
+    // 应用修改
+    try {
+      const stemChanged = stem !== q.stem;
+      q.stem = stem;
+      q.options = options;
+      q.correctIdx = correctIdx;
+      q.module = module;
+      q.type = type;
+      q.knowledgePoints = d.kpDraft.slice();
+      q.originalExplanation = originalExplanation;
+      q.source = source;
+
+      if (stemChanged) {
+        q.aiEasyMistake = '';
+        q.aiBetterSolution = '';
+        q.aiAnalysis = null;
+      }
+    } catch (err) {
+      console.error('[编辑] 应用修改失败：', err);
+    }
+
+    // 保存（即使失败也不影响已重置的编辑状态）
+    try {
+      saveQuestion(q);
+    } catch (err) {
+      console.error('[编辑] saveQuestion 失败：', err);
+      alert('保存到本地失败：' + err.message + '\n\n请按 F12 查看控制台。');
+    }
+
     renderView();
+    // 保存后回到详情页 → 滚动到顶部
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     showToast('已保存修改');
-  });
+  };
+
+  view.querySelector('#edit-save').addEventListener('click', doSave);
+  const saveTop = view.querySelector('#edit-save-top');
+  if (saveTop) saveTop.addEventListener('click', doSave);
 }
 
 /* ---- AI：生成易错点 + 更好解法 ---- */
@@ -5927,10 +6017,62 @@ document.addEventListener('paste', e => {
 
 /* ============ 全局快捷键 ============ */
 document.addEventListener('keydown', e => {
-  const tag = (e.target.tagName || '').toLowerCase();
-  const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select';
+  const isMac = navigator.platform.toUpperCase().includes('MAC');
+  const mod = isMac ? e.metaKey : e.ctrlKey;
 
-  // ESC：从详情页返回
+  /* F1-F4 切换主界面（F5 不劫持，留给浏览器刷新） */
+  if (['F1','F2','F3','F4'].includes(e.key)) {
+    e.preventDefault();
+    const map = { 'F1': 'collect', 'F2': 'exam', 'F3': 'browse', 'F4': 'analysis' };
+    const target = map[e.key];
+    state.mode = target;
+    state.prevMode = target;
+    renderView();
+    return;
+  }
+
+  /* Ctrl/Cmd + K：打开搜索框（错题查看页） */
+  if (mod && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    // 如果当前在详情页或编辑页，先退回列表
+    if (state.mode === 'browse' && (state.browse.selectedId || state.browse.editing)) {
+      state.browse.selectedId = null;
+      state.browse.detail = null;
+      state.browse.editing = false;
+      state.browse.editDraft = null;
+    }
+    if (state.mode !== 'browse') {
+      state.mode = 'browse';
+      state.prevMode = 'browse';
+    }
+    renderView();
+    setTimeout(() => {
+      const inp = document.getElementById('browse-search');
+      if (inp) { inp.focus(); inp.select(); }
+      else { showToast('当前没有搜索框'); }
+    }, 50);
+    return;
+  }
+
+  /* Ctrl/Cmd + S：立即同步到 Gist */
+  if (mod && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    if (!getGistId() || !getGistToken()) {
+      showToast('未配置云同步');
+      return;
+    }
+    syncNow();
+    return;
+  }
+
+  /* Ctrl/Cmd + E：导出备份 */
+  if (mod && e.key.toLowerCase() === 'e') {
+    e.preventDefault();
+    exportBackup();
+    return;
+  }
+
+  /* ESC：原有逻辑 */
   if (e.key === 'Escape') {
     if (state.mode === 'browse' && state.browse.selectedId) {
       state.browse.pendingScrollRestore = state.browse.listScrollY || 0;
@@ -5942,6 +6084,9 @@ document.addEventListener('keydown', e => {
     if (state.mode === 'settings') { goBack(); return; }
   }
 
+  /* 其他快捷键（考试、Enter 等）保持原有代码 */
+  const tag = (e.target.tagName || '').toLowerCase();
+  const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select';
   if (isEditing) return;
 
   // 考试模式
