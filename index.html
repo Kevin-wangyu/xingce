@@ -1594,6 +1594,53 @@ details.card.collapsible > .card-body {
   font-weight: 700; letter-spacing: 0.3px;
   margin-bottom: 8px;
 }
+
+.chat-edit-btn {
+  flex-shrink: 0;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: none; background: transparent; color: var(--text-3);
+  cursor: pointer; opacity: 0; transition: all .15s;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.chat-msg.user:hover .chat-edit-btn { opacity: .7; }
+.chat-edit-btn:hover { opacity: 1 !important; background: var(--surface-2); color: var(--primary); }
+/* ============ 对话气泡优化 ============ */
+.chat-text {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 12px;
+  line-height: 1.55;
+  white-space: normal;
+}
+.chat-text br + br { display: none; }   /* 双 <br> 只渲染一个换行 */
+
+.chat-msg { gap: 8px; }
+
+/* 用户消息容器：编辑按钮绝对定位，不占宽度 */
+.chat-user-wrap {
+  position: relative;
+  max-width: calc(100% - 40px);
+  min-width: 0;
+}
+.chat-edit-btn {
+  position: absolute;
+  left: -26px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px; height: 22px; border-radius: 50%;
+  border: none; background: transparent; color: var(--text-3);
+  cursor: pointer; opacity: 0; transition: all .15s;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.chat-msg.user:hover .chat-edit-btn { opacity: .7; }
+.chat-edit-btn:hover { opacity: 1 !important; background: var(--surface-2); color: var(--primary); }
+/* 对话气泡：列表和换行紧凑 */
+.chat-text ul { margin: 2px 0; padding-left: 18px; }
+.chat-text li { margin: 0; line-height: 1.55; }
+.chat-text b { font-weight: 700; }
 /* 首次引导 toast */
 #welcomeTip {
   position: fixed; bottom: 28px; right: 28px;
@@ -1802,6 +1849,7 @@ async function setMeta(key, value) { if (!useIDB) return; try { await idbPut('me
 async function clearAllStores() {
   if (useIDB) { await idbClear('questions'); await idbClear('meta'); }
   questions = []; settings = {}; dirtyQ.clear();
+  localStorage.removeItem('xc_browse_state');
 }
 /* ============ GitHub Gist 同步 ============ */
 const getGistId = () => localStorage.getItem(K_GIST_ID) || '';
@@ -1951,6 +1999,70 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const renderStem = stem => esc(stem || '').replace(/(_{2,}|＿{2,}|—{2,}|-{3,})/g, '<span style="color:var(--primary);font-weight:700">____</span>');
 
+/* 保存浏览状态（Tab + 当前详情题 + 滚动位置） */
+let _scrollSaveTimer = null;
+function persistBrowseState() {
+  try {
+    const mode = state.mode === 'settings' ? (state.prevMode || 'collect') : state.mode;
+    const payload = {
+      mode,
+      selectedId: state.browse?.selectedId || null,
+      scrollY: window.scrollY || document.documentElement.scrollTop || 0,
+      ts: Date.now()
+    };
+    localStorage.setItem('xc_browse_state', JSON.stringify(payload));
+  } catch {}
+}
+
+/* 节流保存滚动位置（200ms） */
+function persistScrollThrottled() {
+  if (_scrollSaveTimer) return;
+  _scrollSaveTimer = setTimeout(() => {
+    _scrollSaveTimer = null;
+    persistBrowseState();
+  }, 200);
+}
+
+/* 读取上次浏览状态 */
+function loadBrowseState() {
+  try {
+    const raw = localStorage.getItem('xc_browse_state');
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    // 超过 7 天的记录忽略
+    if (!s.ts || Date.now() - s.ts > 7 * 24 * 3600 * 1000) return null;
+    return s;
+  } catch { return null; }
+}
+
+function saveCurrentMode() {
+  try {
+    // 只记主 Tab，不记 settings（设置页刷新回去无意义）
+    const m = state.mode === 'settings' ? (state.prevMode || 'collect') : state.mode;
+    localStorage.setItem('xc_mode', m);
+  } catch {}
+}
+
+/* 重置所有题目的作答统计：错误次数全部置 1，正确次数置 0，清空作答历史 */
+async function resetAllStats() {
+  if (!questions.length) {
+    showToast('当前没有题目');
+    return;
+  }
+  questions.forEach(q => {
+    q.wrongCount = 1;
+    q.rightCount = 0;
+    q.attemptHistory = [];
+    q.updatedAt = Date.now();
+    dirtyQ.add(q.id);
+  });
+  scheduleFlush();
+  schedulePush();
+  invalidateStorageCache();
+  await setMeta('settings', settings);
+  showToast(`已重置 ${questions.length} 道题`);
+  renderView();
+}
 /* 导出错题库为 JSON */
 function exportBackup() {
   if (!questions.length) {
@@ -2304,7 +2416,8 @@ const state = {
     editDraft: null,
     generating: { analysis: false, similar: false },
     chatInput: '',
-    chatLoading: false
+    chatLoading: false,
+    chatEditingIdx: null,   // 正在编辑第几条用户消息（null=不在编辑）
   },
    analysis: {
     module: null,       // null=全部
@@ -2317,87 +2430,190 @@ const state = {
 };
 
 /* ============ OCR ============ */
-/* ============ OCR 引擎管理 ============ */
-let _paddleOcr = null;
-let _paddleOcrPromise = null;
+/* ============ OCR 引擎管理（Worker 版） ============ */
+let _ocrWorker = null;
+let _ocrWorkerPromise = null;
+let _ocrReqId = 0;
+const _ocrPending = new Map();
 let _paddleFailed = false;
 
 function canUsePaddle() {
   return location.protocol === 'http:' || location.protocol === 'https:';
 }
 
-async function initPaddleOCR() {
-  if (_paddleOcr) return _paddleOcr;
-  if (_paddleFailed) throw new Error('PaddleOCR 已被标记为不可用');
-  if (_paddleOcrPromise) return _paddleOcrPromise;
+function getOcrWorker() {
+  if (_ocrWorker) return Promise.resolve(_ocrWorker);
+  if (_ocrWorkerPromise) return _ocrWorkerPromise;
   if (!canUsePaddle()) {
-    _paddleFailed = true;
-    throw new Error('PaddleOCR 需要 HTTP(S) 打开页面，当前是 file:// 协议');
+    return Promise.reject(new Error('需要 HTTP(S) 环境'));
   }
-  _paddleOcrPromise = (async () => {
+
+  _ocrWorkerPromise = new Promise((resolve, reject) => {
+    let w;
     try {
-      const mod = await import('https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm');
-      const ocr = await mod.PaddleOCR.create({
-        lang: 'ch',
-        ocrVersion: 'PP-OCRv5',
-        ortOptions: { backend: 'wasm' }
-      });
-      _paddleOcr = ocr;
-      return ocr;
-    } catch (e) {
-      _paddleFailed = true;
-      throw e;
-    } finally {
-      _paddleOcrPromise = null;
+      w = new Worker('ocr-worker.js', { type: 'module' });
+    } catch (err) {
+      _ocrWorkerPromise = null;
+      reject(new Error('Worker 创建失败：' + err.message));
+      return;
     }
-  })();
-  return _paddleOcrPromise;
+
+    // 3 分钟超时（首次下载模型可能慢）
+    const timeout = setTimeout(() => {
+      if (!_ocrWorker) {
+        _ocrWorkerPromise = null;
+        try { w.terminate(); } catch {}
+        reject(new Error('Worker 初始化超时'));
+      }
+    }, 180000);
+
+    w.onmessage = (e) => {
+      const { id, ok, text, error, warmup } = e.data || {};
+      const cb = _ocrPending.get(id);
+      if (!cb) return;
+      _ocrPending.delete(id);
+      if (ok) cb.resolve(text);
+      else cb.reject(new Error(error || '未知错误'));
+    };
+
+    w.onerror = (e) => {
+      console.error('[Worker] 错误：', e);
+      _paddleFailed = true;
+      _ocrWorker = null;
+      _ocrWorkerPromise = null;
+      // 通知所有等待中的请求
+      for (const [id, cb] of _ocrPending) {
+        cb.reject(new Error('Worker 崩溃：' + (e.message || '未知')));
+      }
+      _ocrPending.clear();
+      clearTimeout(timeout);
+    };
+
+    _ocrWorker = w;
+    clearTimeout(timeout);
+    resolve(w);
+  });
+
+  return _ocrWorkerPromise;
 }
 
+/* 预热：让 Worker 提前加载模型 */
+async function initPaddleOCR() {
+  const w = await getOcrWorker();
+  return new Promise((resolve, reject) => {
+    const id = ++_ocrReqId;
+    _ocrPending.set(id, { resolve, reject });
+    w.postMessage({ id, type: 'warmup' });
+  });
+}
+
+/* 通过 Worker 识别一张图片 */
 async function ocrWithPaddle(file) {
-  const ocr = await initPaddleOCR();
-  const [result] = await ocr.predict(file);
-  return result.items.map(it => it.text).join('\n');
+  const w = await getOcrWorker();
+  const buffer = await file.arrayBuffer();
+  const id = ++_ocrReqId;
+  return new Promise((resolve, reject) => {
+    _ocrPending.set(id, { resolve, reject });
+    w.postMessage({ id, buffer, mime: file.type });
+  });
 }
 
 
 /* ============ 多图 OCR ============ */
 async function processAllImages() {
   const s = state.collect;
-  if (s.busy) return;   // 已有一轮在处理，新图会被现有循环接住
+  if (s._ocrRunning) return;
+  s._ocrRunning = true;
   s.busy = true;
-  renderView();
+  updateCollectFooter();
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-  let i = 0;
-  while (i < s.images.length) {
-    const img = s.images[i];
-    if (img.status === 'done' || img.status === 'error') { i++; continue; }
+  try {
+    let i = 0;
+    while (i < s.images.length) {
+      const img = s.images[i];
+      if (img.status === 'done' || img.status === 'error') { i++; continue; }
 
-    // 更新该图为"识别中"
-    img.status = 'ocr';
-    updateImageStatusDOM(img);
-    updateOcrProgressText();
+      img.status = 'ocr';
+      updateImageStatusDOM(img);
+      updateOcrProgressText();
 
-    await processOneImage(img, i);
+      await processOneImage(img, i);
 
-    // 识别完成 → 只更新该图的局部状态
-    updateImageStatusDOM(img);
-    updateOcrProgressText();
+      if (img.status === 'ocr') img.status = 'done';
+      updateImageStatusDOM(img);
+      updateOcrProgressText();
 
-    i++;
+      i++;
+    }
+  } finally {
+    s._ocrRunning = false;
+    s.busy = false;
   }
 
-  s.busy = false;
+  // 全部识别完：清 parsedList，整页渲染以显示 ② 卡片
+  // 但要先记下用户当前 scrollY，避免跳动
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
   s.parsedList = [];
   renderView();
-
-  setTimeout(() => {
-    const ta = document.getElementById('ocrTextarea');
-    if (ta) ta.focus();
-  }, 100);
+  // 等两帧后恢复滚动位置
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.scrollTo({ top: scrollY, behavior: 'instant' });
+    document.documentElement.scrollTop = scrollY;
+    document.body.scrollTop = scrollY;
+  }));
+}
+/* 更新底部按钮区的显示/隐藏（不整页渲染） */
+function updateCollectFooter() {
+  const s = state.collect;
+  const footer = document.getElementById('collectFooter');
+  if (!footer) return;
+  const hasDone = s.images.some(img => img.status === 'done');
+  footer.style.display = (!s.busy && hasDone) ? 'block' : 'none';
+  // 更新按钮文案（图片数量变化时）
+  const aiBtn = document.getElementById('aiBtn');
+  if (aiBtn) {
+    aiBtn.innerHTML = `🤖 AI 结构化并归类${s.images.length > 1 ? `（共 ${s.images.length} 张图）` : ''}`;
+  }
 }
 
+/* 更新图片计数标签 */
+function updateImagesCountLabel() {
+  const el = document.getElementById('imagesCountLabel');
+  if (!el) return;
+  el.textContent = `已添加 ${state.collect.images.length} 张图片 · 识别顺序即题目拼接顺序`;
+  const section = document.getElementById('imagesSection');
+  if (section) section.style.display = state.collect.images.length ? 'block' : 'none';
+}
+
+/* 往缩略图容器里追加一张图（不整页渲染） */
+function appendImageThumb(img) {
+  const list = document.getElementById('imagesList');
+  if (!list) return;
+  const idx = state.collect.images.indexOf(img);
+  const div = document.createElement('div');
+  div.dataset.imgId = img.id;
+  div.style.cssText = 'position:relative;width:130px;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--bg)';
+  div.innerHTML = `
+    <img src="${img.dataUrl}" style="width:100%;height:90px;object-fit:cover;display:block">
+    <div style="padding:6px 8px;font-size:11px;color:var(--text-2);display:flex;align-items:center;justify-content:space-between;gap:4px">
+      <span>#${idx + 1}</span>
+      <span class="img-status" style="font-weight:700;color:var(--text-3)">待识别</span>
+    </div>
+    <button data-del-img="${img.id}" title="删除这张图"
+      style="position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;
+             border:none;background:rgba(220,38,38,0.9);color:#fff;cursor:pointer;
+             font-weight:800;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">×</button>
+  `;
+  list.appendChild(div);
+  div.querySelector('[data-del-img]').addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.collect.images = state.collect.images.filter(x => x.id !== img.id);
+    div.remove();
+    updateImagesCountLabel();
+    updateCollectFooter();
+  });
+}
 /* 只更新单张缩略图的识别状态，不整页重渲染 */
 function updateImageStatusDOM(img) {
   const el = document.querySelector(`[data-img-id="${img.id}"] .img-status`);
@@ -2540,48 +2756,44 @@ function renderCollect(view) {
       </div>
       <input type="file" id="ocrFile" accept="image/*" multiple hidden>
 
-      ${s.images.length ? `
-        <div style="margin-top:14px">
-          <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.3px;margin-bottom:8px">
-            已添加 ${s.images.length} 张图片 · 识别顺序即题目拼接顺序
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:10px">
-            ${s.images.map((img, i) => `
-              <div data-img-id="${img.id}" style="position:relative;width:130px;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--bg)">
-                <img src="${img.dataUrl}" style="width:100%;height:90px;object-fit:cover;display:block">
-                <div style="padding:6px 8px;font-size:11px;color:var(--text-2);display:flex;align-items:center;justify-content:space-between;gap:4px">
-                  <span>#${i + 1}</span>
-                  <span class="img-status" style="font-weight:700;color:${
-                    img.status === 'done' ? 'var(--success)'
-                    : img.status === 'error' ? 'var(--danger)'
-                    : img.status === 'ocr' ? 'var(--primary)'
-                    : 'var(--text-3)'
-                  }">
-                    ${img.status === 'done' ? '✓ 已识别'
-                    : img.status === 'error' ? '✗ 失败'
-                    : img.status === 'ocr' ? '识别中…'
-                    : '待识别'}
-                  </span>
-                </div>
-                <button data-del-img="${img.id}" title="删除这张图"
-                  style="position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;
-                        border:none;background:rgba(220,38,38,0.9);color:#fff;cursor:pointer;
-                        font-weight:800;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">×</button>
+      <div id="imagesSection" style="margin-top:14px;display:${s.images.length ? 'block' : 'none'}">
+        <div id="imagesCountLabel" style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.3px;margin-bottom:8px">
+          已添加 ${s.images.length} 张图片 · 识别顺序即题目拼接顺序
+        </div>
+        <div id="imagesList" style="display:flex;flex-wrap:wrap;gap:10px">
+          ${s.images.map((img, i) => `
+            <div data-img-id="${img.id}" style="position:relative;width:130px;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--bg)">
+              <img src="${img.dataUrl}" style="width:100%;height:90px;object-fit:cover;display:block">
+              <div style="padding:6px 8px;font-size:11px;color:var(--text-2);display:flex;align-items:center;justify-content:space-between;gap:4px">
+                <span>#${i + 1}</span>
+                <span class="img-status" style="font-weight:700;color:${
+                  img.status === 'done' ? 'var(--success)'
+                  : img.status === 'error' ? 'var(--danger)'
+                  : img.status === 'ocr' ? 'var(--primary)'
+                  : 'var(--text-3)'
+                }">${
+                  img.status === 'done' ? '✓ 已识别'
+                  : img.status === 'error' ? '✗ 失败'
+                  : img.status === 'ocr' ? '识别中…'
+                  : '待识别'
+                }</span>
               </div>
-            `).join('')}
-          </div>
+              <button data-del-img="${img.id}" title="删除这张图"
+                style="position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;
+                       border:none;background:rgba(220,38,38,0.9);color:#fff;cursor:pointer;
+                       font-weight:800;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">×</button>
+            </div>
+          `).join('')}
         </div>
-      ` : ''}
+      </div>
 
-      ${!s.busy && s.images.length && s.images.some(img => img.status === 'done') ? `
-        <div style="margin-top:12px">
-          <button class="btn primary" id="aiBtn" ${!hasKey ? 'disabled title="请先到设置页配置 API Key"' : ''}>
-            🤖 AI 结构化并归类${s.images.length > 1 ? `（共 ${s.images.length} 张图）` : ''}
-          </button>
-          <button class="btn ghost" id="clearBtn" style="margin-left:8px">清空重来</button>
-          <span class="status-line" id="aiStatus" style="margin-left:12px"></span>
-        </div>
-      ` : ''}
+      <div id="collectFooter" style="margin-top:12px;display:none">
+        <button class="btn primary" id="aiBtn" ${!hasKey ? 'disabled title="请先到设置页配置 API Key"' : ''}>
+          🤖 AI 结构化并归类
+        </button>
+        <button class="btn ghost" id="clearBtn" style="margin-left:8px">清空重来</button>
+        <span class="status-line" id="aiStatus" style="margin-left:12px"></span>
+      </div>
 
       <div class="status-line" id="ocrStatus"></div>
       <div id="ocrEngineLabel" style="font-size:11px;color:var(--text-3);margin-top:6px;line-height:1.6">
@@ -2631,7 +2843,7 @@ function renderCollect(view) {
     `;
   }
 
-  const recent = questions.slice().sort((a,b) => (b.createdAt||0) - (a.createdAt||0)).slice(0, 5);
+  const recent = questions.slice().sort((a,b) => (b.createdAt||0) - (a.createdAt||0)).slice(0, 10);
   if (recent.length) {
     html += `
       <div class="card">
@@ -2753,11 +2965,13 @@ function bindCollectEvents() {
   const drop = document.getElementById('dropZone');
   const fileInput = document.getElementById('ocrFile');
 
-  const handleFiles = (files) => {
+  const handleFiles = async (files) => {
     const s2 = state.collect;
     const arr = Array.from(files).filter(f => f && f.type.startsWith('image/'));
     if (!arr.length) return;
-    Promise.all(arr.map(f => new Promise(res => {
+
+    // 先读全部 dataURL
+    const items = await Promise.all(arr.map(f => new Promise(res => {
       const r = new FileReader();
       r.onload = ev => res({
         id: uid(), file: f, dataUrl: ev.target.result,
@@ -2765,12 +2979,19 @@ function bindCollectEvents() {
       });
       r.onerror = () => res(null);
       r.readAsDataURL(f);
-    }))).then(items => {
-      items.filter(Boolean).forEach(it => s2.images.push(it));
-      renderView();   // 立即显示缩略图（状态"待识别"）
-      // 触发 OCR（如果已有循环在跑，会自然接住新图）
-      setTimeout(() => processAllImages(), 30);
-    });
+    })));
+
+    // 逐个加入内存 + 追加 DOM
+    for (const it of items) {
+      if (!it) continue;
+      s2.images.push(it);
+      appendImageThumb(it);
+    }
+    updateImagesCountLabel();
+    updateCollectFooter();
+
+    // 触发 OCR（如果已在跑，会自动接住新图）
+    setTimeout(() => processAllImages(), 30);
   };
 
   if (drop && fileInput) {
@@ -2974,7 +3195,7 @@ function bindCollectEvents() {
         originalExplanation: explanation,
         aiEasyMistake: '', aiBetterSolution: '',
         source,
-        wrongCount: 0, rightCount: 0,
+        wrongCount: 1, rightCount: 0,
         attemptHistory: [],
         createdAt: Date.now()
       });
@@ -3103,7 +3324,7 @@ function renderSettings(view) {
     <div class="card">
       <div class="card-head">
         <div>
-          <div class="card-title">数据</div>
+          <div class="card-title">数据管理</div>
           <div class="card-sub">当前有 ${questions.length} 道错题</div>
         </div>
       </div>
@@ -3124,6 +3345,13 @@ function renderSettings(view) {
       </div>
       <div class="setting-row">
         <div class="setting-row-main">
+          <div class="setting-row-title">重置作答统计</div>
+          <div class="setting-row-desc">把所有题目的错误次数置为 1、正确次数置 0、清空作答历史。题目内容不受影响</div>
+        </div>
+        <button class="btn sm" id="resetStatsBtn">重置</button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-row-main">
           <div class="setting-row-title">清理 OCR 缓存</div>
           <div class="setting-row-desc">释放 PaddleOCR 模型占用的空间（约 30MB）。不影响错题库，下次识别会自动重新下载</div>
         </div>
@@ -3136,6 +3364,9 @@ function renderSettings(view) {
         </div>
         <button class="btn sm danger" id="resetBtn">清空</button>
       </div>
+
+
+
     </div>
 
     <div class="card">
@@ -3191,7 +3422,7 @@ function renderSettings(view) {
         </div>
       </div>
       <div class="about-text">
-        <p>行测错题本是一个纯浏览器端应用，所有数据保存在本机 <code>IndexedDB</code>，不上传任何服务器（AI 调用除外，仅发送题目文本给 DeepSeek）。</p>
+        <p>行测错题本是一个纯浏览器端应用，所有数据保存在本机 <code>IndexedDB</code>，设置Gist可即时同步和备份数据。</p>
         <div class="about-features">
           <div class="about-feature">
             <b>📸 截图收录</b>
@@ -3343,6 +3574,13 @@ function renderSettings(view) {
     localStorage.removeItem(K_GIST_ID);
     localStorage.removeItem(K_GIST_TOKEN);
     renderView();
+  });
+
+  const elResetStats = view.querySelector('#resetStatsBtn');
+  if (elResetStats) elResetStats.addEventListener('click', async () => {
+    if (!questions.length) { alert('当前没有题目'); return; }
+    if (!confirm(`将重置全部 ${questions.length} 道题的作答统计：\n\n· 错误次数 → 1\n· 正确次数 → 0\n· 清空作答历史\n\n题目内容、AI 分析、对话记录都保留。确定继续？`)) return;
+    await resetAllStats();
   });
 }
 
@@ -4045,7 +4283,6 @@ function renderBrowseList(view) {
 
 /* ---- 打开详情 ---- */
 function openQuestionDetail(id) {
-  // 记录当前列表滚动位置（在 renderView 之前读）
   state.browse.listScrollY = window.scrollY || document.documentElement.scrollTop || 0;
   const q = questions.find(x => x.id === id);
   if (!q) return;
@@ -4055,10 +4292,10 @@ function openQuestionDetail(id) {
   state.browse.editing = false;
   state.browse.editDraft = null;
   renderView();
-  // 强制回到顶部
   window.scrollTo({ top: 0, behavior: 'instant' });
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
+  persistBrowseState();
 }
 
 /* ---- 详情页 ---- */
@@ -4372,6 +4609,7 @@ function renderBrowseDetail(view) {
     state.browse.selectedId = null;
     state.browse.detail = null;
     renderView();
+    persistBrowseState();
   });
 
   const prevBtn = view.querySelector('#detail-prev');
@@ -4423,6 +4661,49 @@ function renderBrowseDetail(view) {
       renderView();
     });
   });
+
+    // 编辑按钮
+  view.querySelectorAll('[data-edit-idx]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      startEditChat(q, parseInt(btn.dataset.editIdx));
+    });
+  });
+
+  // 取消编辑
+  view.querySelectorAll('[data-cancel-edit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.browse.chatEditingIdx = null;
+      renderView();
+    });
+  });
+
+  // 提交编辑
+  view.querySelectorAll('[data-submit-edit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.submitEdit);
+      const ta = document.getElementById('edit-chat-input');
+      const text = (ta?.value || '').trim();
+      if (!text) { alert('内容不能为空'); return; }
+      submitEditChat(q, idx, text);
+    });
+  });
+
+  // 编辑框快捷键：Enter 提交，Esc 取消
+  const editTa = view.querySelector('#edit-chat-input');
+  if (editTa) {
+    editTa.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        state.browse.chatEditingIdx = null;
+        renderView();
+      } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const idx = state.browse.chatEditingIdx;
+        const text = editTa.value.trim();
+        if (text) submitEditChat(q, idx, text);
+      }
+    });
+  }
 
   const saveSim = view.querySelector('#save-similar');
   if (saveSim) saveSim.addEventListener('click', async () => {
@@ -4543,13 +4824,54 @@ function renderChatBlock(q) {
     `;
   } else {
     html += `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <button class="btn ghost sm" id="chat-clear" title="清空该题的所有对话">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          </svg>
+          清空对话
+        </button>
+      </div>
       <div class="chat-history" id="chat-history">
-        ${history.map(m => `
-          <div class="chat-msg ${m.role === 'user' ? 'user' : 'ai'}">
-            <div class="chat-role">${m.role === 'user' ? '我' : 'AI'}</div>
-            <div class="chat-text">${formatChatText(m.text)}</div>
-          </div>
-        `).join('')}
+        ${history.map((m, i) => {
+          const isEditing = b.chatEditingIdx === i && m.role === 'user';
+          if (m.role === 'user') {
+            return `
+              <div class="chat-msg user">
+                <div class="chat-role">我</div>
+                ${isEditing ? `
+                  <div style="flex:1;max-width:calc(100% - 40px);min-width:0">
+                    <textarea class="input" id="edit-chat-input" rows="2" style="width:100%;font-size:13px;line-height:1.7">${esc(m.text)}</textarea>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+                      <button class="btn ghost sm" data-cancel-edit="${i}">取消</button>
+                      <button class="btn primary sm" data-submit-edit="${i}">重新发送</button>
+                    </div>
+                  </div>
+                ` : `
+                  <div class="chat-user-wrap">
+                    <button class="chat-edit-btn" data-edit-idx="${i}" title="编辑后重新发送">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                      </svg>
+                    </button>
+                    <div class="chat-text">${formatChatText(m.text)}</div>
+                  </div>
+                `}
+              </div>
+            `;
+          } else {
+            return `
+              <div class="chat-msg ai">
+                <div class="chat-role">AI</div>
+                <div class="chat-text">${formatChatText(m.text)}</div>
+              </div>
+            `;
+          }
+        }).join('')}
         ${b.chatLoading ? `
           <div class="chat-msg ai">
             <div class="chat-role">AI</div>
@@ -4589,19 +4911,21 @@ function renderChatBlock(q) {
 
 /* 简单格式化：加粗、换行、列表 */
 function formatChatText(text) {
-  let s = esc(text || '');
+  let s = String(text || '');
+  // 先把常见"不可见空白"转成普通空格
+  s = s.replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, ' ');
+  // 去行首行尾空白
+  s = s.replace(/[ \t]+(?=\n)/g, '');
+  s = s.replace(/\n[ \t]+/g, '\n');
+  // 转义（在转义前先做空白处理，避免影响 &#160; 等实体）
+  s = esc(s);
   // 加粗
   s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   // 列表项
   s = s.replace(/^[ \t]*[-*]\s+(.+)$/gm, '<li>$1</li>');
-  // 包裹列表
-  s = s.replace(/(?:<li>[\s\S]*?<\/li>\n?)+/g, (m) => `<ul>${m.replace(/\n/g, '')}</ul>`);
-  // 连续 3+ 换行压成 2 个
-  s = s.replace(/\n{3,}/g, '\n\n');
-  // 剩下单换行变 <br>
-  s = s.replace(/\n/g, '<br>');
-  // 清理连续 <br> 超过 2 个的
-  s = s.replace(/(<br>){3,}/g, '<br><br>');
+  s = s.replace(/(?:<li>[\s\S]*?<\/li>\n?)+/g, m => `<ul>${m.replace(/\n/g, '')}</ul>`);
+  // 所有换行全部去掉（段落直接连在一起，不再有空行）
+  s = s.replace(/\n+/g, '');
   return s;
 }
 
@@ -4647,24 +4971,24 @@ async function sendChatMessage(q, text) {
 /* 调用 DeepSeek 对话 */
 async function askAIAboutQuestion(q, question) {
   const apiKey = getApiKey();
-  const sys = `你是行测答疑老师。学生正在看一道错题，会向你追问各种问题。请根据题目信息，给出清晰、直接、有教学价值的回答。
+  const sys = `你是行测答疑老师。学生正在看一道错题，会向你追问各种问题。
 
-返回 JSON：
+**必须只返回 JSON**（不要任何其他文字、不要 markdown 代码块包裹）：
 {
-  "answer": "回答正文。用通俗语言，不堆术语。简单问题 100 字以内，复杂问题 250 字以内。可以用 **加粗** 和 - 列表，但不要用代码块。",
+  "answer": "回答正文。用通俗语言，不堆术语。简单问题 100 字以内，复杂问题 250 字以内。可以用 **加粗** 和 - 列表。",
   "suggestions": [
-    "学生可能继续问的问题1（15字以内，口语化）",
-    "学生可能继续问的问题2",
-    "学生可能继续问的问题3"
+    "问题1（15字以内，口语化）",
+    "问题2",
+    "问题3"
   ]
 }
 
-suggestions 的要求：
-1. 2-3 条，是**基于当前回答**自然延伸出的、学生大概率想接着问的问题。
-2. 不要和已经问过的问题重复。
-3. 口语化，像学生自己会问的（如"那 XX 情况怎么办"）。
-4. 如果当前回答已经很完整、没什么可追问的，suggestions 返回空数组 []。
-5. 只返回 JSON，不要 markdown 代码块。`;
+【suggestions 强制要求】
+- **每次都必须返回 2-3 条**，这是硬性要求。
+- 建议要基于当前回答自然延伸，是学生大概率想接着问的。
+- 不要和用户已经问过的问题重复。
+- 口语化，像学生自己会问的（如"那 XX 情况怎么办"）。
+- 只有当用户问的完全是封闭式问题（如"对不对？"）时，才可以少于 2 条。`;
 
   const qInfo = `【题目信息】
 模块：${q.module}
@@ -4694,27 +5018,115 @@ ${q.aiAnalysis && q.aiAnalysis.coreIdea ? 'AI 已分析核心：' + q.aiAnalysis
     body: JSON.stringify({
       model: 'deepseek-chat',
       messages,
-      response_format: { type: 'json_object' },
       temperature: 0.6
     })
   });
-  if (!res.ok) throw new Error('API 请求失败 (' + res.status + ')');
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`API 请求失败 (${res.status})：${t.slice(0, 120)}`);
+  }
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content || '{}';
-  let parsed;
-  try { parsed = JSON.parse(content); } catch { parsed = { answer: content, suggestions: [] }; }
+  const raw = data.choices?.[0]?.message?.content?.trim() || '';
 
-  return {
-    answer: String(parsed.answer || '').trim() || '（AI 未返回内容）',
-    suggestions: (Array.isArray(parsed.suggestions) ? parsed.suggestions : [])
-      .map(s => String(s).trim()).filter(Boolean).slice(0, 3)
-  };
+  // ============ 容错解析 ============
+  let parsed = null;
+
+  // 尝试 1：直接 JSON
+  try { parsed = JSON.parse(raw); } catch {}
+
+  // 尝试 2：剥掉 markdown 代码块再解析
+  if (!parsed) {
+    const mdMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (mdMatch) {
+      try { parsed = JSON.parse(mdMatch[1].trim()); } catch {}
+    }
+  }
+
+  // 尝试 3：提取第一个 {...} 大括号块
+  if (!parsed) {
+    const braceMatch = raw.match(/\{[\s\S]*\}/);
+    if (braceMatch) {
+      try { parsed = JSON.parse(braceMatch[0]); } catch {}
+    }
+  }
+
+  let answer, suggestions;
+
+  if (parsed && typeof parsed === 'object' && parsed.answer) {
+    answer = String(parsed.answer).trim();
+    suggestions = (Array.isArray(parsed.suggestions) ? parsed.suggestions : [])
+      .map(s => String(s).trim()).filter(Boolean).slice(0, 3);
+  } else {
+    // 完全解析失败：把原文当答案（剥掉可能的 JSON 片段）
+    console.warn('[追问] JSON 解析失败，原文：', raw);
+    answer = raw
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\{[\s\S]*\}/g, '')
+      .trim() || raw || '（AI 未返回内容）';
+    suggestions = [];
+  }
+
+  // ============ 兜底建议 ============
+  if (!suggestions.length) {
+    suggestions = genFallbackSuggestions(q);
+  }
+
+  return { answer, suggestions };
 }
+
+/* 当 AI 没给建议时，用兜底列表 */
+function genFallbackSuggestions(q) {
+  const asked = (q.chatHistory || [])
+    .filter(m => m.role === 'user')
+    .map(m => m.text);
+  const candidates = [
+    '能举个具体的例子吗',
+    '如果考试遇到类似的题，怎么快速识别',
+    '这个知识点还有哪些常见考法',
+    '我容易在这里犯错，有什么口诀吗',
+    '用一句话总结这道题的核心'
+  ];
+  const out = [];
+  for (const c of candidates) {
+    if (out.length >= 3) break;
+    if (asked.some(a => a.includes(c) || c.includes(a))) continue;
+    out.push(c);
+  }
+  return out;
+}
+
+/* 进入编辑态：把第 idx 条用户消息变成可编辑 */
+function startEditChat(q, idx) {
+  state.browse.chatEditingIdx = idx;
+  renderView();
+  requestAnimationFrame(() => {
+    const ta = document.getElementById('edit-chat-input');
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  });
+}
+
+/* 提交编辑：删除该消息及之后的所有消息，重新发送 */
+async function submitEditChat(q, idx, newText) {
+  const b = state.browse;
+  if (!newText || !newText.trim()) return;
+  if (b.chatLoading) return;
+  if (!getApiKey()) { alert('请先在设置页配置 API Key'); return; }
+
+  // 保留 idx 之前的历史，删除 idx 及之后的所有
+  q.chatHistory = (q.chatHistory || []).slice(0, idx);
+  q.chatSuggestions = [];
+  b.chatEditingIdx = null;
+
+  // 作为新消息加入并发送
+  await sendChatMessage(q, newText.trim());
+}
+
 /* 清空对话 */
 function clearChat(q) {
   if (!q.chatHistory || !q.chatHistory.length) return;
   if (!confirm('清空这道题的所有对话记录？')) return;
   q.chatHistory = [];
+  q.chatSuggestions = [];
   saveQuestion(q);
   renderView();
 }
@@ -4738,6 +5150,7 @@ function gotoAdjacentDetail(delta) {
   window.scrollTo({ top: 0, behavior: 'instant' });
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
+  persistBrowseState();
 }
 
 /* ---- 编辑模式 ---- */
@@ -5555,7 +5968,7 @@ function renderReportBody(scope) {
     <div class="report-footer">
       <div class="report-footer-meta">
         <span class="dot-live"></span>
-        <span>${ageText} · 缓存 24 小时</span>
+        <span>${ageText} · 缓存 14 天</span>
       </div>
       <button class="btn ghost sm" id="regen-report">重新生成</button>
     </div>
@@ -5622,7 +6035,8 @@ async function navToAnalysis(module, type, kp) {
     const cached = await getMeta(key);
     // 检查用户是否还在同一范围
     if (analysisCacheKey() !== key) return;
-    if (cached && cached.generatedAt && Date.now() - cached.generatedAt < 24 * 3600 * 1000) {
+        const CACHE_TTL = 14 * 24 * 3600 * 1000;   // 14 天
+    if (cached && cached.generatedAt && Date.now() - cached.generatedAt < CACHE_TTL) {
       a.report = cached;
       renderView();
     }
@@ -5665,6 +6079,7 @@ async function generateReport() {
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
 
     const report = {
+      _v: 2,
       level,
       scope: { module: a.module, type: a.type, kp: a.kp },
       ...parsed,
@@ -5698,65 +6113,73 @@ function buildAnalysisPayload(scope, level) {
 
   lines.push(`【层级】${scope.path.map(p => p.label).join(' > ')}`);
   lines.push(`【错题总数】${scope.list.length}`);
-  lines.push(`【累计答错/答对】${scope.totalWrong} 次 / ${scope.totalRight} 次`);
-  const rate = (scope.totalWrong + scope.totalRight)
-    ? Math.round(scope.totalRight / (scope.totalWrong + scope.totalRight) * 100) : 0;
-  lines.push(`【正确率】${rate}%`);
+  lines.push(`【累计答错次数】${scope.totalWrong}`);
+
+  const rep3 = scope.list.filter(q => (q.wrongCount || 0) >= 3).length;
+  const rep5 = scope.list.filter(q => (q.wrongCount || 0) >= 5).length;
+  lines.push(`【反复错（≥3次）】${rep3} 道`);
+  if (rep5) lines.push(`【顽固错（≥5次）】${rep5} 道`);
   lines.push('');
 
-  /* 层级：全部 → 补充分模块统计 */
+  const dist = { '1次': 0, '2次': 0, '3-4次': 0, '5次+': 0 };
+  scope.list.forEach(q => {
+    const w = q.wrongCount || 0;
+    if (w <= 1) dist['1次']++;
+    else if (w === 2) dist['2次']++;
+    else if (w <= 4) dist['3-4次']++;
+    else dist['5次+']++;
+  });
+  const distStr = Object.entries(dist).filter(([k,v]) => v).map(([k,v]) => `${k}: ${v}道`).join('，');
+  lines.push(`【错误次数分布】${distStr}`);
+  lines.push('');
+
   if (level === 'all') {
     const byModule = {};
     scope.list.forEach(q => {
       const m = q.module || '未分类';
-      if (!byModule[m]) byModule[m] = { count: 0, wrong: 0, right: 0, types: {}, kps: {} };
+      if (!byModule[m]) byModule[m] = { count: 0, wrong: 0, types: {}, kps: {} };
       byModule[m].count++;
       byModule[m].wrong += q.wrongCount || 0;
-      byModule[m].right += q.rightCount || 0;
       if (q.type) byModule[m].types[q.type] = (byModule[m].types[q.type] || 0) + 1;
       (q.knowledgePoints || []).forEach(k => {
         byModule[m].kps[k] = (byModule[m].kps[k] || 0) + (q.wrongCount || 0);
       });
     });
-    lines.push('【各模块统计】');
+    lines.push('【各模块错题分布（按累计答错次数降序）】');
     Object.entries(byModule).sort((x, y) => y[1].wrong - x[1].wrong).forEach(([m, s]) => {
-      const mRate = (s.wrong + s.right) ? Math.round(s.right / (s.wrong + s.right) * 100) : 0;
       const topTypes = Object.entries(s.types).sort((x, y) => y[1] - x[1]).slice(0, 5)
-        .map(([t, c]) => `${t}(${c})`).join('、');
+        .map(([t, c]) => `${t}(${c}题)`).join('、');
       const topKps = Object.entries(s.kps).sort((x, y) => y[1] - x[1]).slice(0, 5)
-        .map(([k, c]) => `${k}(错${c})`).join('、');
-      lines.push(`- ${m}：${s.count} 题，错 ${s.wrong} 次，正确率 ${mRate}%`);
-      lines.push(`  常错题型：${topTypes}`);
-      lines.push(`  常错知识点：${topKps}`);
+        .map(([k, c]) => `${k}(错${c}次)`).join('、');
+      lines.push(`- ${m}：${s.count} 题，累计错 ${s.wrong} 次`);
+      lines.push(`  常错题型：${topTypes || '—'}`);
+      lines.push(`  常错知识点：${topKps || '—'}`);
     });
     lines.push('');
   }
 
-  /* 层级：模块 → 补充题型分布 */
   if (level === 'module' || level === 'type') {
     const byType = {};
     scope.list.forEach(q => {
       const t = q.type || '未分类';
-      if (!byType[t]) byType[t] = { count: 0, wrong: 0, right: 0, kps: {}, avgTime: 0, timeN: 0 };
+      if (!byType[t]) byType[t] = { count: 0, wrong: 0, kps: {}, repeated: 0 };
       byType[t].count++;
       byType[t].wrong += q.wrongCount || 0;
-      byType[t].right += q.rightCount || 0;
+      if ((q.wrongCount || 0) >= 3) byType[t].repeated++;
       (q.knowledgePoints || []).forEach(k => {
         byType[t].kps[k] = (byType[t].kps[k] || 0) + (q.wrongCount || 0);
       });
     });
-    lines.push('【各题型统计】');
+    lines.push('【各题型错题分布（按累计答错次数降序）】');
     Object.entries(byType).sort((x, y) => y[1].wrong - x[1].wrong).forEach(([t, s]) => {
-      const tRate = (s.wrong + s.right) ? Math.round(s.right / (s.wrong + s.right) * 100) : 0;
       const topKps = Object.entries(s.kps).sort((x, y) => y[1] - x[1]).slice(0, 6)
-        .map(([k, c]) => `${k}(错${c})`).join('、');
-      lines.push(`- ${t}：${s.count} 题，错 ${s.wrong} 次，正确率 ${tRate}%`);
-      lines.push(`  常错知识点：${topKps}`);
+        .map(([k, c]) => `${k}(错${c}次)`).join('、');
+      lines.push(`- ${t}：${s.count} 题，累计错 ${s.wrong} 次，反复错 ${s.repeated} 道`);
+      lines.push(`  常错知识点：${topKps || '—'}`);
     });
     lines.push('');
   }
 
-  /* 知识点错误频次 */
   if (scope.freq.length) {
     lines.push('【知识点错误频次】');
     scope.freq.slice(0, 15).forEach(f => {
@@ -5765,27 +6188,37 @@ function buildAnalysisPayload(scope, level) {
     lines.push('');
   }
 
-  /* 时间分析（从 attemptHistory 提取） */
-  const times = [];
-  const answerTimes = {};   // 每题平均用时
+  /* 误选模式 —— 判断错误类型的关键 */
+  const wrongChoiceMap = {};
   scope.list.forEach(q => {
+    (q.wrongHistory || []).forEach(sel => {
+      const optText = (q.options[sel] || '').slice(0, 20);
+      if (!optText) return;
+      wrongChoiceMap[optText] = (wrongChoiceMap[optText] || 0) + 1;
+    });
     (q.attemptHistory || []).forEach(h => {
-      if (h.t && h.cost) times.push(h.cost);
+      if (h.ok) return;
+      const optText = (q.options[h.sel] || '').slice(0, 20);
+      if (!optText) return;
+      wrongChoiceMap[optText] = (wrongChoiceMap[optText] || 0) + 1;
     });
   });
-  // 若无 h.cost，就跳过（我们目前不存每题耗时，只有总时长）
+  const topWrong = Object.entries(wrongChoiceMap).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  if (topWrong.length) {
+    lines.push('【经常被误选的选项内容（截断 20 字，反映错误模式）】');
+    topWrong.forEach(([t, c]) => lines.push(`- "${t}"：误选 ${c} 次`));
+    lines.push('');
+  }
 
-  /* 错题明细 */
   lines.push('【错题明细（按错误次数降序，最多 25 条）】');
   const sorted = [...scope.list].sort((a, b) => (b.wrongCount || 0) - (a.wrongCount || 0)).slice(0, 25);
   sorted.forEach((q, i) => {
-    lines.push(`${i + 1}. [错${q.wrongCount || 0}/对${q.rightCount || 0}] ${q.module} · ${q.type}`);
+    lines.push(`${i + 1}. [错${q.wrongCount || 0}次] ${q.module} · ${q.type}`);
     lines.push(`   知识点：${(q.knowledgePoints || []).join('、')}`);
     lines.push(`   题干：${q.stem.slice(0, 100)}${q.stem.length > 100 ? '…' : ''}`);
     lines.push(`   正确答案：${String.fromCharCode(65 + q.correctIdx)}. ${q.options[q.correctIdx]}`);
-    if (q.wrongHistory && q.wrongHistory.length) {
-      lines.push(`   错选项：${q.wrongHistory.map(i => String.fromCharCode(65 + i)).join('、')}`);
-    }
+    const wrongOpts = (q.wrongHistory || []).map(i => `选${String.fromCharCode(65 + i)}. ${q.options[i].slice(0, 15)}`);
+    if (wrongOpts.length) lines.push(`   曾错选：${wrongOpts.join('；')}`);
   });
 
   return lines.join('\n');
@@ -5793,6 +6226,17 @@ function buildAnalysisPayload(scope, level) {
 
 /* 按层级生成 system prompt */
 function buildAnalysisPrompt(level) {
+  const commonHead = `【背景说明（极其重要）】
+- 这是用户的**错题本**，所有题目都是做错后才被收录的。
+- **绝对不要**计算或提及"正确率"，因为天然是 0%，毫无意义。
+- 你的任务是分析**错题本身的分布、错误次数、误选内容**，找出薄弱环节。
+
+【判断薄弱的依据】
+1. 错题在**哪个模块/题型/知识点**最集中 → 那个方向最薄弱
+2. **错误次数多**的题（≥3次）说明反复踩坑，是顽固短板
+3. **被误选的选项内容**能反映错误模式（如总选近义词、总被绝对化词骗、总选对策项）
+4. 累计答错次数按模块/题型排序，前几名是优先补强对象`;
+
   const commonTail = `
 【输出格式】严格 JSON：
 {
@@ -5801,13 +6245,13 @@ function buildAnalysisPrompt(level) {
   "rootCause": {
     "symptom": "表面现象，30-50字",
     "deeper": "根本原因，50-80字",
-    "habit": "可能的不良习惯，30-50字"
+    "habit": "可能的不良做题习惯，30-50字"
   },
   "weakPoints": [
     {
       "name": "知识点/能力名",
       "severity": "high|medium|low",
-      "evidence": "具体证据，引用错误次数和典型题目",
+      "evidence": "具体证据，引用错题数/错误次数/典型误选",
       "impact": "放任不管的代价"
     }
   ],
@@ -5826,73 +6270,81 @@ function buildAnalysisPrompt(level) {
 【通用要求】
 1. 禁用"加强练习""夯实基础""查漏补缺"这类废话。每条建议都要能落到具体动作。
 2. 建议必须可执行：说清楚"做什么、做多少、怎么检验"。
-3. 引用数据必须用具体数字，不能笼统说"很多"。
-4. 只返回 JSON，不要 markdown 代码块。`;
+3. 引用数据必须用具体数字（错题数、错误次数、误选内容）。
+4. **绝对不要提"正确率"**。
+5. 只返回 JSON，不要 markdown 代码块。`;
 
   if (level === 'all') {
     return `你是行测备考策略师。用户给你的是**全部错题**数据，请做**宏观战略诊断**。
 
-核心任务：
-1. 从各模块的错误率、题量、知识点分布，判断用户整体处在什么水平、最大短板在哪。
-2. 指出**必须优先补强的 1-2 个模块**，并说明为什么（基于数据）。
-3. 识别用户的"系统性弱点"——不是某个知识点，而是某种**能力缺失**（如审题速度、逻辑严谨性、阅读效率、计算准确度）。
-4. 给出 2-3 个月的**分阶段战略**：第一阶段补什么、第二阶段练什么、第三阶段冲刺什么。
-5. 建议要有取舍——明确说"XX模块暂时可以先放一放"。
+${commonHead}
 
-输出要求：
-- weakPoints 必须聚焦**模块级**薄弱（如"资料分析-综合题"、"言语理解-逻辑填空"）。
+【核心任务】
+1. 从各模块的**错题数量分布**和**累计错误次数**，判断用户整体最大短板在哪。
+2. 指出**必须优先补强的 1-2 个模块**，并说明为什么（基于错题集中度）。
+3. 识别用户的"系统性弱点"——不是某个知识点，而是某种**能力缺失**（如审题太快、逻辑跳跃、总被近义词骗、对转折词不敏感）。
+4. 给出 2-3 个月的**分阶段战略**：第一阶段补什么、第二阶段练什么、第三阶段冲刺什么。
+5. 建议要有取舍——明确说"XX模块错题少，可以暂时放一放"。
+
+【输出要求】
+- weakPoints 聚焦**模块级**薄弱。
 - plan 是**长周期**的（2-3 个月），每阶段目标要体现"从 X 提升到 Y"。
-- 最后一定要有"战略优先级"判断：如果时间有限，先做什么。
+- 最后要有"战略优先级"判断：如果时间有限，先做什么。
 ${commonTail}`;
   }
 
   if (level === 'module') {
     return `你是行测单模块教练。用户给你的是**某个模块下的全部错题**，请做**模块级深度诊断**。
 
-核心任务：
-1. 分析这个模块的错题分布：哪些题型是主要失分点、哪些知识点反复出问题。
-2. 判断失分**根源**：是知识不牢？方法不对？还是某种**做题习惯**（如言语总想读完才选、数量爱死算）？
-3. 分题型给出**该模块特有的解题方法**：这个模块应该怎么读题、怎么排除、怎么验证。
-4. 给出**可操作的分阶段训练计划**，突出该模块的训练方法（如言语要"每日精练5篇+复盘"）。
+${commonHead}
 
-输出要求：
-- weakPoints 必须聚焦**题型级或能力级**薄弱（如"逻辑填空-成语辨析"、"主旨概括-行文脉络识别"、"做题速度"）。
-- plan 要具体到"每天做几道/几篇、用什么材料、怎么复盘"。
-- **如果能从数据中看出做题速度问题（如资料分析总是超时），必须专门指出**。
+【核心任务】
+1. 分析这个模块的错题分布：哪些**题型**错题最多、哪些**知识点**反复出现。
+2. 从**误选的选项内容**判断错误模式（如逻辑填空总选近义词、资料分析总算错单位）。
+3. 判断失分**根源**：是知识不牢？方法不对？还是某种**做题习惯**？
+4. 分题型给出**该模块特有的解题方法**：应该怎么读题、怎么排除、怎么验证。
+5. 给出**可操作的分阶段训练计划**。
+
+【输出要求】
+- weakPoints 聚焦**题型级或能力级**薄弱。
+- plan 具体到"每天做几道/几篇、用什么材料、怎么复盘"。
+- 如果能从错题分布看出**做题速度问题**，必须专门指出。
 ${commonTail}`;
   }
 
   if (level === 'type') {
     return `你是行测单题型教练。用户给你的是**某个题型下的全部错题**，请做**题型级深度诊断**。
 
-核心任务：
-1. 分析该题型的**常见陷阱**：用户反复踩的坑是什么。
+${commonHead}
+
+【核心任务】
+1. 分析该题型的**常见陷阱**：用户反复踩的坑是什么（从误选内容看）。
 2. 分析该题型的**解题套路**：正确的思考步骤应该是什么，用户在哪一步出错。
 3. 判断用户对这个题型的**掌握程度**：是完全不会？还是容易粗心？还是方法不到位？
-4. 给出**针对性训练方案**：这个题型应该怎么专项突破。
+4. 给出**针对性训练方案**。
 
-输出要求：
-- weakPoints 必须聚焦**知识点/解题环节级**薄弱（如"转折结构识别"、"选项对比技巧"）。
-- plan 要具体到"每天几道题、做完怎么复盘、错题怎么归类"。
-- 要给出该题型的**3-5 条通用解题原则**（写在 rootCause.deeper 或 plan 里）。
+【输出要求】
+- weakPoints 聚焦**知识点/解题环节级**薄弱。
+- plan 具体到"每天几道题、做完怎么复盘、错题怎么归类"。
+- 给出该题型的**3-5 条通用解题原则**。
 ${commonTail}`;
   }
 
-  // level === 'kp'
   return `你是行测知识点专项教练。用户给你的是**某个具体知识点下的全部错题**，请做**知识点级深度诊断**。
 
-核心任务：
+${commonHead}
+
+【核心任务】
 1. 分析用户对这个知识点的**具体误区**：是从概念上就不清楚？还是应用时容易混淆？
 2. 指出这个知识点的**本质规律**（用通俗语言讲清楚，不要背定义）。
-3. 给出**这个知识点的通用解题步骤**：遇到这类题，第一步看什么、第二步判断什么、第三步怎么选。
-4. 给出**针对性训练**：先怎么理解、再怎么做题、怎么做错题归因。
+3. 给出**这个知识点的通用解题步骤**：第一步看什么、第二步判断什么、第三步怎么选。
+4. 给出**针对性训练**。
 
-输出要求：
+【输出要求】
 - headline 要说清"你的问题到底出在哪"（如"你把'转折'当'因果'，方向全错了"）。
 - evidence 要引用具体的错误选项和正确选项的对比。
 - rootCause.deeper 要讲**知识点的本质**，不是表面描述。
-- weakPoints 可以聚焦"错误类型"（如"混淆 XX 与 YY"）。
-- plan 要极其具体：先做什么、再做什么、最后做什么。可以包含"先看一段讲解视频/文章"这样的步骤。
+- plan 要极其具体。
 ${commonTail}`;
 }
 
@@ -6050,6 +6502,7 @@ document.addEventListener('paste', e => {
   if (!files.length) return;
   e.preventDefault();
 
+  // 复用 handleFiles 的逻辑
   const s2 = state.collect;
   Promise.all(files.map(f => new Promise(res => {
     const r = new FileReader();
@@ -6060,8 +6513,13 @@ document.addEventListener('paste', e => {
     r.onerror = () => res(null);
     r.readAsDataURL(f);
   }))).then(items2 => {
-    items2.filter(Boolean).forEach(it => s2.images.push(it));
-    renderView();   // 立即显示缩略图
+    for (const it of items2) {
+      if (!it) continue;
+      s2.images.push(it);
+      appendImageThumb(it);
+    }
+    updateImagesCountLabel();
+    updateCollectFooter();
     setTimeout(() => processAllImages(), 30);
   });
 });
@@ -6078,6 +6536,7 @@ document.addEventListener('keydown', e => {
     const target = map[e.key];
     state.mode = target;
     state.prevMode = target;
+    saveCurrentMode();
     renderView();
     return;
   }
@@ -6164,8 +6623,8 @@ document.getElementById('settingsBtn').addEventListener('click', openSettings);
 document.querySelectorAll('.nav button').forEach(btn => {
   btn.addEventListener('click', () => {
     state.mode = btn.dataset.mode;
-    // 若从设置页切回某个 tab，也顺带更新 prevMode
     if (btn.dataset.mode !== 'settings') state.prevMode = btn.dataset.mode;
+    saveCurrentMode();
     renderView();
   });
 });
@@ -6182,24 +6641,72 @@ document.querySelectorAll('.nav button').forEach(btn => {
     } catch (e) { console.warn('IDB 读取失败', e); }
   }
 
-    // 一次性清理旧格式的 AI 分析报告缓存
+  // 一次性清理旧格式 AI 报告缓存（只执行一次）
   try {
-    const allMeta = useIDB ? await idbGetAll('meta') : [];
-    const oldKeys = allMeta
-      .filter(m => m.key && m.key.startsWith('analysis:'))
-      .filter(m => !m.value || !m.value.level)  // 无 level 字段 = 旧格式
-      .map(m => m.key);
-    if (oldKeys.length && useIDB) {
-      for (const k of oldKeys) {
-        await new Promise(r => {
-          const tx = db.transaction('meta', 'readwrite');
-          tx.objectStore('meta').delete(k);
-          tx.oncomplete = r; tx.onerror = r;
-        });
+    const CLEAN_FLAG = 'xc_analysis_cleaned_v2';
+    if (!localStorage.getItem(CLEAN_FLAG)) {
+      const allMeta = useIDB ? await idbGetAll('meta') : [];
+      const oldKeys = allMeta
+        .filter(m => m.key && m.key.startsWith('analysis:'))
+        .filter(m => !m.value || !m.value.level || m.value._v !== 2)
+        .map(m => m.key);
+      if (oldKeys.length && useIDB) {
+        for (const k of oldKeys) {
+          await new Promise(r => {
+            const tx = db.transaction('meta', 'readwrite');
+            tx.objectStore('meta').delete(k);
+            tx.oncomplete = r; tx.onerror = r;
+          });
+        }
+        console.log(`[清理] 删除 ${oldKeys.length} 条旧报告缓存`);
       }
-      console.log(`[清理] 删除 ${oldKeys.length} 条旧格式 AI 报告缓存`);
+      localStorage.setItem(CLEAN_FLAG, '1');
     }
   } catch (e) { console.warn('清理旧缓存失败：', e); }
+
+  // 恢复上次所在 Tab
+  const savedMode = localStorage.getItem('xc_mode');
+  const validModes = ['collect','exam','browse','analysis'];
+  if (savedMode && validModes.includes(savedMode)) {
+    state.mode = savedMode;
+    state.prevMode = savedMode;
+  }
+    // 恢复 AI 分析页当前层级的缓存报告（14 天内有效）
+  if (state.mode === 'analysis') {
+    try {
+      const key = analysisCacheKey();
+      const cached = await getMeta(key);
+      const CACHE_TTL = 14 * 24 * 3600 * 1000;
+      if (cached && cached.generatedAt && Date.now() - cached.generatedAt < CACHE_TTL) {
+        state.analysis.report = cached;
+        console.log('[AI分析] 已从缓存恢复报告');
+      }
+    } catch (e) { console.warn('[AI分析] 恢复缓存失败：', e); }
+  }
+
+  // 恢复更细的浏览状态
+  const lastBrowse = loadBrowseState();
+  let restoreScrollY = 0;
+  if (lastBrowse) {
+    if (validModes.includes(lastBrowse.mode)) {
+      state.mode = lastBrowse.mode;
+      state.prevMode = lastBrowse.mode;
+    }
+    restoreScrollY = Number(lastBrowse.scrollY) || 0;
+    // 尝试恢复详情页
+    if (lastBrowse.selectedId && state.mode === 'browse') {
+      const q = questions.find(x => x.id === lastBrowse.selectedId);
+      if (q) {
+        state.browse.selectedId = q.id;
+        state.browse.detail = { question: q, similar: [] };
+        state.browse.generating = { analysis: false, similar: false };
+        // 重建列表顺序（用于上/下题切换）
+        state.browse.listIds = sortBrowseList(questions).map(x => x.id);
+        state.browse.listScrollY = 0;
+        state.browse.pendingScrollRestore = null;
+      }
+    }
+  }
 
   renderView();
 
@@ -6248,6 +6755,14 @@ document.querySelectorAll('.nav button').forEach(btn => {
       console.warn('[SW] 注册失败：', err.message);
     });
   }
+    // 恢复滚动位置
+  if (restoreScrollY > 0) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.scrollTo({ top: restoreScrollY, behavior: 'instant' });
+      document.documentElement.scrollTop = restoreScrollY;
+      document.body.scrollTop = restoreScrollY;
+    }));
+  }
 
   // 首次打开引导（只提示一次）
   if (!localStorage.getItem('xc_welcomed')) {
@@ -6264,6 +6779,12 @@ document.querySelectorAll('.nav button').forEach(btn => {
       if (lastSyncedAt) setMeta('lastSyncedAt', lastSyncedAt);
     } catch {}
   });
+  // 滚动时持续记录位置（仅在有 selectedId 或处于列表页时）
+  window.addEventListener('scroll', () => {
+    if (state.mode === 'browse' || state.mode === 'collect' || state.mode === 'analysis') {
+      persistScrollThrottled();
+    }
+  }, { passive: true });
 })();
 
 function showWelcome() {
