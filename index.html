@@ -1641,6 +1641,53 @@ details.card.collapsible > .card-body {
 .chat-text ul { margin: 2px 0; padding-left: 18px; }
 .chat-text li { margin: 0; line-height: 1.55; }
 .chat-text b { font-weight: 700; }
+/* ============ 破题题眼高亮 ============ */
+.key-point {
+  background: linear-gradient(180deg, transparent 55%, rgba(250, 204, 21, 0.6) 55%);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+  font-weight: 700;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+[data-theme="dark"] .key-point {
+  background: linear-gradient(180deg, transparent 55%, rgba(250, 204, 21, 0.35) 55%);
+  color: #fde047;
+}
+
+/* 题眼分析块 */
+.key-point-item {
+  padding: 10px 14px;
+  background: var(--bg);
+  border-radius: 8px;
+  border-left: 3px solid #facc15;
+  margin-bottom: 8px;
+}
+.key-point-item:last-child { margin-bottom: 0; }
+.key-point-item .kpt {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 5px;
+  line-height: 1.6;
+}
+.key-point-item .kpt mark {
+  background: linear-gradient(180deg, transparent 55%, rgba(250, 204, 21, 0.6) 55%);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+[data-theme="dark"] .key-point-item .kpt mark {
+  background: linear-gradient(180deg, transparent 55%, rgba(250, 204, 21, 0.35) 55%);
+  color: #fde047;
+}
+.key-point-item .kpr {
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text-2);
+}
+
 /* 首次引导 toast */
 #welcomeTip {
   position: fixed; bottom: 28px; right: 28px;
@@ -1998,7 +2045,37 @@ async function syncNow() {
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const renderStem = stem => esc(stem || '').replace(/(_{2,}|＿{2,}|—{2,}|-{3,})/g, '<span style="color:var(--primary);font-weight:700">____</span>');
-
+/* 渲染题干 + 破题题眼高亮 */
+function renderStemWithHighlights(stem, keyPoints) {
+  if (!stem) return '';
+  let html = esc(stem);
+  // 横线转高亮
+  html = html.replace(/(_{2,}|＿{2,}|—{2,}|-{3,})/g,
+    '<span style="color:var(--primary);font-weight:700">____</span>');
+  // 题眼高亮
+  if (Array.isArray(keyPoints) && keyPoints.length) {
+    // 按长度降序，避免短片段先匹配导致长片段无法匹配
+    const sorted = [...keyPoints]
+      .map(k => (typeof k === 'string' ? k : k.text))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    const placed = [];
+    for (const raw of sorted) {
+      const t = esc(raw);
+      if (!t) continue;
+      // 转义正则特殊字符
+      const safe = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // 避免在已放置的 <mark> 内部重复匹配
+      if (placed.some(p => p.includes(t))) continue;
+      const re = new RegExp(safe, 'g');
+      if (re.test(html)) {
+        html = html.replace(re, `<mark class="key-point">${t}</mark>`);
+        placed.push(t);
+      }
+    }
+  }
+  return html;
+}
 /* 保存浏览状态（Tab + 当前详情题 + 滚动位置） */
 let _scrollSaveTimer = null;
 function persistBrowseState() {
@@ -4352,7 +4429,12 @@ function renderBrowseDetail(view) {
         ${q.source ? `<span class="tag gray">${esc(q.source)}</span>` : ''}
       </div>
 
-      <div class="detail-stem" style="margin-top:16px">${renderStem(q.stem)}</div>
+      <div class="detail-stem" style="margin-top:16px">${
+        renderStemWithHighlights(
+          q.stem,
+          (q.aiAnalysis && q.aiAnalysis.keyPoints) || []
+        )
+      }</div>
 
       <div>
         ${q.options.map((opt, i) => {
@@ -4430,6 +4512,26 @@ function renderBrowseDetail(view) {
       </div>
     `;
   } else {
+      // 破题题眼
+  if (an.keyPoints && an.keyPoints.length) {
+    html += `
+      <div class="ai-block" style="background:linear-gradient(135deg,rgba(250,204,21,0.10),rgba(250,204,21,0.04));border-color:rgba(250,204,21,0.25)">
+        <div class="ai-block-head" style="color:#ca8a04">
+          <span>🔑</span><span>破题题眼</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:10px;line-height:1.6">
+          题干中以下内容已用黄色高亮标识：
+        </div>
+        ${an.keyPoints.map(kp => `
+          <div class="key-point-item">
+            <div class="kpt"><mark>${esc(kp.text)}</mark></div>
+            <div class="kpr">${esc(kp.reason)}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
     // 核心洞察
   if (an.coreIdea) {
       html += `
@@ -5362,22 +5464,39 @@ async function generateAnalysis(q, force = false) {
 返回 JSON：
 {
   "coreIdea": "这道题最核心的一句话。20字以内，抓住关键矛盾",
+  "keyPoints": [
+    {
+      "text": "题干中的关键片段，必须与题干原文完全一致，不能改一个字",
+      "reason": "为什么这段是破题题眼，30-50字"
+    }
+  ],
   "breakthrough": "解题第一步应该抓什么？30-60字。具体说清看哪里、想什么",
   "optionAnalysis": [
-    { "label": "A", "type": "right|wrong", "why": "选它/不选它的根本原因，30-50字" },
-    ... (ABCD 都要给出)
+    { "label": "A", "type": "right|wrong", "why": "选它/不选它的根本原因，30-50字" }
   ],
   "easyMistake": "最常见的错误思路是什么？为什么会掉坑？60-100字",
-  "betterSolution": "有没有更本质或更快的分析方法？可以是公式、技巧、或换个切入角度。60-100字",
+  "betterSolution": "有没有更本质或更快的分析方法？60-100字",
   "generalTip": "下次遇到同类题，通用的思考步骤是什么？分2-3步写，50-80字"
 }
 
-要求：
-1. 不要复述题干和选项，直接给分析。
-2. optionAnalysis 必须逐项分析，不能跳过。
-3. betterSolution 优先给"换个角度秒杀"或"更稳的通用方法"，不要罗列常识。
-4. generalTip 要具体到"看什么→判断什么→选什么"。
-5. 只返回 JSON，不要 markdown 代码块。`;
+【keyPoints 关键要求】
+1. **必须逐字复制题干中的原句片段**（连续的一段文字），不能改写、不能省略标点。
+2. 提取 2-4 个片段，是"看到就能秒懂"的关键信息。例如：
+   - 逻辑填空：起呼应作用的词、转折词、"相反""类似"等提示词
+   - 主旨概括：主题词、转折后的核心句、结论句
+   - 意图判断：问题描述、对策句、"意在""想表达"
+   - 数量关系：关键数据、"是...倍""比...多""至少/最多"
+   - 资料分析：时间限定词、单位、"同比/环比""增长/下降"
+3. 每个片段不宜过长，一般 4-20 个字。
+4. 如果整段都很关键，优先选最短的、能代表核心逻辑的那一段。
+5. 如果实在找不出，keyPoints 返回空数组 []。
+
+其他规则：
+- 不要复述题干，直接给分析。
+- optionAnalysis 必须逐项分析，不能跳过。
+- betterSolution 优先给"换个角度秒杀"或"更稳的通用方法"。
+- generalTip 要具体到"看什么→判断什么→选什么"。
+- 只返回 JSON，不要 markdown 代码块。`;
 
     const user = `模块：${q.module}
 题型：${q.type}
@@ -5407,6 +5526,10 @@ ${q.originalExplanation ? '原解析：' + q.originalExplanation : ''}`;
 
     q.aiAnalysis = {
       coreIdea: String(parsed.coreIdea || '').trim(),
+      keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints.map(k => ({
+        text: String(k.text || '').trim(),
+        reason: String(k.reason || '').trim()
+      })).filter(k => k.text).slice(0, 4) : [],
       breakthrough: String(parsed.breakthrough || '').trim(),
       optionAnalysis: Array.isArray(parsed.optionAnalysis) ? parsed.optionAnalysis.map(o => ({
         label: String(o.label || '').toUpperCase().slice(0, 1),
