@@ -1687,7 +1687,532 @@ details.card.collapsible > .card-body {
   line-height: 1.75;
   color: var(--text-2);
 }
+/* ============ 对话角色配置 ============ */
+.avatar-preview {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--surface-2); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; flex-shrink: 0;
+  border: 2px solid var(--border);
+}
+.avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
 
+.avatar-picker {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+}
+.avatar-option {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--card); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; transition: all .15s;
+  padding: 0;
+}
+.avatar-option:hover { border-color: var(--primary); transform: scale(1.05); }
+.avatar-option.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
+}
+
+/* 聊天头像 */
+.chat-role {
+  width: 32px; height: 32px; border-radius: 50%;
+  overflow: hidden; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; background: var(--surface-2);
+}
+.chat-role img { width: 100%; height: 100%; object-fit: cover; }
+.chat-msg.ai .chat-role {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+}
+.chat-msg.user .chat-role {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+/* 角色名 */
+.chat-role-name {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.chat-msg.user .chat-role-name { text-align: right; }
+@media (max-width: 640px) {
+  .role-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ============ 个人笔记列表 ============ */
+.note-item {
+  padding: 14px 12px;
+  margin: 0 -12px;
+  border-radius: 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: all .15s;
+}
+.note-item:hover {
+  background: var(--hover-bg);
+  box-shadow: 0 1px 3px rgba(15,23,42,0.06), 0 4px 12px rgba(15,23,42,0.04);
+}
+[data-theme="dark"] .note-item:hover {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.3);
+}
+.note-item:last-child { border-bottom: none; }
+.note-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 8px;
+}
+.note-tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.note-stem {
+  font-size: 12.5px; line-height: 1.6; color: var(--text-3);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  margin-bottom: 8px;
+}
+.note-content {
+  font-size: 13.5px; line-height: 1.7; color: var(--text);
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(250,204,21,0.10), rgba(250,204,21,0.03));
+  border-left: 3px solid #facc15;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+[data-theme="dark"] .note-content {
+  background: linear-gradient(135deg, rgba(250,204,21,0.08), rgba(250,204,21,0.02));
+}
+/* ============================================================
+   个人笔记 · 商务版
+   ============================================================ */
+.notes-hero {
+  background: linear-gradient(135deg, #f8faff 0%, #eef2ff 55%, #f5f0ff 100%);
+  border: 1px solid #e5e9f5;
+  border-radius: 14px;
+  padding: 26px 28px;
+  position: relative; overflow: hidden;
+  margin-top: 16px;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.03);
+}
+[data-theme="dark"] .notes-hero {
+  background: linear-gradient(135deg, #0f1729 0%, #141d38 55%, #1a1730 100%);
+  border-color: #2a3552;
+}
+.notes-hero::before {
+  content: ''; position: absolute;
+  top: -50%; right: -15%; width: 55%; height: 200%;
+  background: radial-gradient(circle, rgba(139,92,246,0.10), transparent 65%);
+  pointer-events: none;
+}
+.notes-hero::after {
+  content: ''; position: absolute;
+  bottom: -60%; left: -10%; width: 50%; height: 160%;
+  background: radial-gradient(circle, rgba(250,204,21,0.10), transparent 70%);
+  pointer-events: none;
+}
+.notes-hero-head {
+  display: flex; align-items: center; justify-content: space-between;
+  position: relative; z-index: 1; margin-bottom: 22px;
+  gap: 12px; flex-wrap: wrap;
+}
+.notes-hero-title {
+  font-size: 20px; font-weight: 800; color: var(--text);
+  letter-spacing: -0.4px;
+  display: flex; align-items: center; gap: 10px;
+}
+.notes-hero-title .icon {
+  width: 32px; height: 32px; border-radius: 9px;
+  background: linear-gradient(135deg, #facc15, #f59e0b);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  box-shadow: 0 3px 10px rgba(250,204,21,0.4);
+}
+.notes-hero-sub {
+  font-size: 13px; color: var(--text-3);
+  margin-top: 5px; margin-left: 42px;
+  font-weight: 400;
+}
+.notes-hero-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 20px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
+  box-shadow: 0 3px 10px rgba(99,102,241,0.28);
+}
+
+.notes-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  position: relative; z-index: 1;
+}
+@media (max-width: 640px) { .notes-stats { grid-template-columns: 1fr; } }
+.notes-stat {
+  background: #ffffff;
+  border: 1px solid #e5e9f5;
+  border-radius: 12px;
+  padding: 16px 18px;
+  position: relative; overflow: hidden;
+  transition: all .18s;
+}
+[data-theme="dark"] .notes-stat {
+  background: rgba(255,255,255,0.03);
+  border-color: rgba(255,255,255,0.08);
+}
+.notes-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(37,99,235,0.10);
+}
+.notes-stat::before {
+  content: ''; position: absolute; top: 0; left: 0; bottom: 0; width: 3px;
+}
+.notes-stat.stat-primary::before { background: linear-gradient(180deg, #6366f1, #8b5cf6); }
+.notes-stat.stat-warn::before { background: linear-gradient(180deg, #facc15, #f59e0b); }
+.notes-stat.stat-success::before { background: linear-gradient(180deg, #22c55e, #10b981); }
+
+.notes-stat-label {
+  font-size: 11px; color: var(--text-3);
+  font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  display: flex; align-items: center; gap: 6px;
+}
+.notes-stat-label .ico { font-size: 14px; }
+.notes-stat-value {
+  font-size: 28px; font-weight: 800;
+  letter-spacing: -0.6px; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  display: flex; align-items: baseline; gap: 4px;
+}
+.notes-stat-value .unit {
+  font-size: 12px; font-weight: 600; color: var(--text-3);
+}
+.notes-stat-progress {
+  margin-top: 10px;
+  height: 4px; background: var(--surface-2); border-radius: 2px;
+  overflow: hidden;
+}
+.notes-stat-progress .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 2px;
+  transition: width .6s;
+}
+.notes-stat-desc {
+  font-size: 11px; color: var(--text-3);
+  margin-top: 8px;
+}
+
+/* 筛选工具条 */
+.notes-toolbar {
+  display: flex; gap: 12px; align-items: flex-end;
+  flex-wrap: wrap;
+}
+.notes-toolbar > div { flex: 1; min-width: 140px; }
+.notes-toolbar label { margin-top: 0; }
+
+/* 笔记列表卡片 */
+.note-item {
+  padding: 18px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+  cursor: pointer;
+  transition: all .18s;
+  margin-bottom: 12px;
+  position: relative; overflow: hidden;
+}
+[data-theme="dark"] .note-item {
+  background: linear-gradient(180deg, #131b2e 0%, #101728 100%);
+}
+.note-item::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(180deg, #facc15, #f59e0b);
+  transform: scaleY(0); transform-origin: top;
+  transition: transform .25s;
+}
+.note-item:hover {
+  border-color: rgba(250,204,21,0.5);
+  transform: translateX(2px);
+  box-shadow: 0 8px 20px rgba(250,204,21,0.10);
+}
+.note-item:hover::before { transform: scaleY(1); }
+.note-item:last-child { margin-bottom: 0; }
+
+.note-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px;
+}
+.note-tags {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  flex: 1; min-width: 0;
+}
+.note-time {
+  font-size: 11px; color: var(--text-3);
+  flex-shrink: 0; display: flex; align-items: center; gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.note-time .ico { font-size: 11px; }
+
+.note-stem {
+  font-size: 12.5px; line-height: 1.65;
+  color: var(--text-3);
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding-left: 2px;
+  border-left: 2px solid var(--border);
+  padding: 2px 0 2px 10px;
+}
+.note-content {
+  font-size: 13.5px; line-height: 1.8;
+  color: var(--text);
+  padding: 12px 14px 12px 16px;
+  background: linear-gradient(135deg, rgba(250,204,21,0.10), rgba(250,204,21,0.03));
+  border-left: 3px solid #facc15;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: relative;
+}
+[data-theme="dark"] .note-content {
+  background: linear-gradient(135deg, rgba(250,204,21,0.08), rgba(250,204,21,0.02));
+}
+.note-content::before {
+  content: '"';
+  position: absolute; top: 2px; right: 12px;
+  font-size: 40px; line-height: 1;
+  color: #facc15; opacity: 0.25;
+  font-family: Georgia, serif; font-weight: 900;
+}
+
+/* 个人笔记卡片 (详情页) */
+.personal-note-block .note-tip {
+  font-size: 12px; color: var(--text-3);
+  margin-bottom: 10px; line-height: 1.6;
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* ============================================================
+   个人笔记 · 优雅版 v2
+   ============================================================ */
+
+/* Hero：低饱和靛蓝-紫罗兰渐变，白底衬托 */
+.notes-hero {
+  background: linear-gradient(135deg, #fafbff 0%, #f4f6ff 55%, #f8f5ff 100%);
+  border: 1px solid #e6e9f5;
+  border-radius: 14px;
+  padding: 28px 30px;
+  position: relative; overflow: hidden;
+  margin-top: 16px;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.03);
+}
+[data-theme="dark"] .notes-hero {
+  background: linear-gradient(135deg, #0f1523 0%, #14192e 55%, #171528 100%);
+  border-color: #262f48;
+}
+.notes-hero::before {
+  content: ''; position: absolute;
+  top: -60%; right: -10%; width: 50%; height: 220%;
+  background: radial-gradient(circle, rgba(99,102,241,0.06), transparent 60%);
+  pointer-events: none;
+}
+.notes-hero::after {
+  content: ''; position: absolute;
+  bottom: -60%; left: -8%; width: 45%; height: 180%;
+  background: radial-gradient(circle, rgba(139,92,246,0.05), transparent 65%);
+  pointer-events: none;
+}
+
+.notes-hero-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  position: relative; z-index: 1; margin-bottom: 22px;
+}
+.notes-hero-title {
+  font-size: 19px; font-weight: 800; color: var(--text);
+  letter-spacing: -0.4px;
+  display: flex; align-items: center; gap: 10px;
+}
+.notes-hero-title .icon {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 15px;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.28);
+}
+.notes-hero-sub {
+  font-size: 13px; color: var(--text-3);
+  margin-top: 6px; margin-left: 40px;
+  font-weight: 400;
+  letter-spacing: 0.1px;
+}
+
+/* 统计卡：两栏 */
+.notes-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  position: relative; z-index: 1;
+}
+@media (max-width: 640px) { .notes-stats { grid-template-columns: 1fr; } }
+
+.notes-stat {
+  background: #ffffff;
+  border: 1px solid #e8ebf5;
+  border-radius: 12px;
+  padding: 18px 20px;
+  transition: all .2s;
+  position: relative; overflow: hidden;
+}
+[data-theme="dark"] .notes-stat {
+  background: rgba(255,255,255,0.025);
+  border-color: rgba(255,255,255,0.07);
+}
+.notes-stat:hover {
+  transform: translateY(-2px);
+  border-color: #d5daf0;
+  box-shadow: 0 8px 24px rgba(99,102,241,0.08);
+}
+[data-theme="dark"] .notes-stat:hover {
+  border-color: rgba(99,102,241,0.35);
+  box-shadow: 0 8px 24px rgba(99,102,241,0.15);
+}
+
+.notes-stat-label {
+  font-size: 11px; color: var(--text-3);
+  font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  display: flex; align-items: center; gap: 6px;
+}
+.notes-stat-label .ico { font-size: 13px; opacity: .8; }
+.notes-stat-value {
+  font-size: 30px; font-weight: 800;
+  letter-spacing: -0.8px; line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  display: flex; align-items: baseline; gap: 4px;
+}
+.notes-stat-value .unit {
+  font-size: 12px; font-weight: 600; color: var(--text-3);
+  letter-spacing: 0;
+}
+.notes-stat-progress {
+  margin-top: 12px;
+  height: 3px; background: var(--surface-2); border-radius: 2px;
+  overflow: hidden;
+}
+.notes-stat-progress .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 2px;
+  transition: width .6s;
+}
+.notes-stat-desc {
+  font-size: 11.5px; color: var(--text-3);
+  margin-top: 10px;
+  letter-spacing: 0.1px;
+}
+
+/* 筛选工具条 */
+.notes-toolbar {
+  display: flex; gap: 12px; align-items: flex-end;
+  flex-wrap: wrap;
+}
+.notes-toolbar > div { flex: 1; min-width: 140px; }
+.notes-toolbar label { margin-top: 0; }
+
+/* 笔记卡片：轻盈、克制 */
+.note-item {
+  padding: 18px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #ffffff 0%, #fdfdff 100%);
+  cursor: pointer;
+  transition: all .2s;
+  margin-bottom: 10px;
+  position: relative; overflow: hidden;
+}
+[data-theme="dark"] .note-item {
+  background: linear-gradient(180deg, #131b2e 0%, #101728 100%);
+}
+.note-item::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(180deg, #6366f1, #8b5cf6);
+  transform: scaleY(0); transform-origin: top;
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
+}
+.note-item:hover {
+  border-color: rgba(99,102,241,0.35);
+  transform: translateX(2px);
+  box-shadow: 0 10px 24px rgba(99,102,241,0.08);
+}
+[data-theme="dark"] .note-item:hover {
+  border-color: rgba(99,102,241,0.5);
+  box-shadow: 0 10px 24px rgba(99,102,241,0.15);
+}
+.note-item:hover::before { transform: scaleY(1); }
+.note-item:last-child { margin-bottom: 0; }
+
+.note-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px;
+}
+.note-tags {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  flex: 1; min-width: 0;
+}
+.note-time {
+  font-size: 11px; color: var(--text-3);
+  flex-shrink: 0; display: flex; align-items: center; gap: 4px;
+  font-variant-numeric: tabular-nums;
+  opacity: .8;
+}
+.note-time .ico { font-size: 11px; opacity: .7; }
+
+.note-stem {
+  font-size: 12.5px; line-height: 1.65;
+  color: var(--text-3);
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--border);
+}
+
+.note-content {
+  font-size: 13.5px; line-height: 1.85;
+  color: var(--text);
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.045), rgba(139,92,246,0.025));
+  border-left: 3px solid #6366f1;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: relative;
+}
+[data-theme="dark"] .note-content {
+  background: linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.05));
+  border-left-color: #818cf8;
+}
 /* 首次引导 toast */
 #welcomeTip {
   position: fixed; bottom: 28px; right: 28px;
@@ -1763,6 +2288,7 @@ details.card.collapsible > .card-body {
       <button data-mode="collect">错题收录</button>
       <button data-mode="exam">错题考试</button>
       <button data-mode="browse">错题查看</button>
+      <button data-mode="notes">个人笔记</button>
       <button data-mode="analysis">AI 分析</button>
     </nav>
   </div>
@@ -1813,6 +2339,43 @@ const getApiKey = () => localStorage.getItem(K_API_KEY) || '';
 const setApiKey = k => localStorage.setItem(K_API_KEY, k);
 const getTheme = () => localStorage.getItem(K_THEME) || 'light';
 const applyTheme = t => document.documentElement.setAttribute('data-theme', t);
+/* ============ 对话角色配置 ============ */
+const K_CHAT_ME = 'xc_chat_me';
+const K_CHAT_AI = 'xc_chat_ai';
+
+const DEFAULT_CHAT_ROLES = {
+  me: { name: '我', avatar: '👤' },
+  ai: { name: 'AI', avatar: '🤖' }
+};
+
+function getChatRoles() {
+  try {
+    const me = JSON.parse(localStorage.getItem(K_CHAT_ME) || 'null');
+    const ai = JSON.parse(localStorage.getItem(K_CHAT_AI) || 'null');
+    return {
+      me: { ...DEFAULT_CHAT_ROLES.me, ...(me || {}) },
+      ai: { ...DEFAULT_CHAT_ROLES.ai, ...(ai || {}) }
+    };
+  } catch {
+    return { ...DEFAULT_CHAT_ROLES };
+  }
+}
+
+function setChatRoles(me, ai) {
+  if (me) localStorage.setItem(K_CHAT_ME, JSON.stringify(me));
+  if (ai) localStorage.setItem(K_CHAT_AI, JSON.stringify(ai));
+}
+
+/* 渲染单个头像：支持 emoji 或 base64 图片 */
+function renderAvatarHTML(avatar) {
+  if (!avatar) return '';
+  if (avatar.startsWith('data:image/')) {
+    return `<img src="${avatar}" alt="">`;
+  }
+  return avatar;
+}
+
+
 function toggleTheme() {
   const next = getTheme() === 'dark' ? 'light' : 'dark';
   localStorage.setItem(K_THEME, next);
@@ -2080,10 +2643,12 @@ function renderStemWithHighlights(stem, keyPoints) {
 let _scrollSaveTimer = null;
 function persistBrowseState() {
   try {
-    const mode = state.mode === 'settings' ? (state.prevMode || 'collect') : state.mode;
+    const inBrowse = state.mode === 'browse';
     const payload = {
-      mode,
-      selectedId: state.browse?.selectedId || null,
+      // 只有当前在错题查看页时，才保留 selectedId
+      // 切到其他 Tab 说明用户不再看这道题，下次刷新应回列表
+      selectedId: (inBrowse && state.browse?.selectedId) ? state.browse.selectedId : null,
+      filter: state.browse?.filter || { module: 'all', type: 'all', knowledgePoints: [] },
       scrollY: window.scrollY || document.documentElement.scrollTop || 0,
       ts: Date.now()
     };
@@ -2114,9 +2679,8 @@ function loadBrowseState() {
 
 function saveCurrentMode() {
   try {
-    // 只记主 Tab，不记 settings（设置页刷新回去无意义）
-    const m = state.mode === 'settings' ? (state.prevMode || 'collect') : state.mode;
-    localStorage.setItem('xc_mode', m);
+    // 设置页也记录，刷新后能回到设置页
+    localStorage.setItem('xc_mode', state.mode);
   } catch {}
 }
 
@@ -2132,6 +2696,8 @@ async function resetAllStats() {
     q.attemptHistory = [];
     q.updatedAt = Date.now();
     dirtyQ.add(q.id);
+    if (typeof q.personalNote !== 'string') q.personalNote = '';
+    if (typeof q.personalNoteUpdatedAt !== 'number') q.personalNoteUpdatedAt = 0;
   });
   scheduleFlush();
   schedulePush();
@@ -2495,6 +3061,10 @@ const state = {
     chatInput: '',
     chatLoading: false,
     chatEditingIdx: null,   // 正在编辑第几条用户消息（null=不在编辑）
+  },
+  notes: {
+    sort: 'updatedAt',  // 'updatedAt' | 'createdAt' | 'module'
+    filterModule: 'all'
   },
    analysis: {
     module: null,       // null=全部
@@ -3274,6 +3844,8 @@ function bindCollectEvents() {
         source,
         wrongCount: 1, rightCount: 0,
         attemptHistory: [],
+        personalNote: '',
+        personalNoteUpdatedAt: 0,
         createdAt: Date.now()
       });
     });
@@ -3395,6 +3967,65 @@ function renderSettings(view) {
       <div class="actions">
         <button class="btn primary" id="saveKeyBtn">保存</button>
         ${hasKey ? '<button class="btn ghost" id="clearKeyBtn">清除</button>' : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">对话角色</div>
+          <div class="card-sub">自定义"追问 AI"里的头像和名字</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px" class="role-grid">
+        <div>
+          <label style="margin-top:0">我的名字</label>
+          <input id="role-me-name" class="input" value="${esc(getChatRoles().me.name)}" maxlength="12" placeholder="如：小明">
+
+          <label>我的头像</label>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="avatar-preview" id="role-me-preview">${renderAvatarHTML(getChatRoles().me.avatar)}</div>
+            <div style="flex:1;min-width:0">
+              <div class="avatar-picker" id="role-me-picker">
+                ${['👤','🙂','😎','🦊','🐱','🐼','🐧','🌱','🎓','📚','🚀','⭐'].map(e => `
+                  <button type="button" class="avatar-option ${getChatRoles().me.avatar === e ? 'selected' : ''}" data-role="me" data-emoji="${e}">${e}</button>
+                `).join('')}
+              </div>
+              <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn sm" id="role-me-upload">上传图片</button>
+                ${getChatRoles().me.avatar && getChatRoles().me.avatar.startsWith('data:') ? `<button class="btn sm ghost" id="role-me-reset">恢复默认</button>` : ''}
+                <input type="file" id="role-me-file" accept="image/*" hidden>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label style="margin-top:0">AI 的名字</label>
+          <input id="role-ai-name" class="input" value="${esc(getChatRoles().ai.name)}" maxlength="12" placeholder="如：助教">
+
+          <label>AI 头像</label>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="avatar-preview" id="role-ai-preview">${renderAvatarHTML(getChatRoles().ai.avatar)}</div>
+            <div style="flex:1;min-width:0">
+              <div class="avatar-picker" id="role-ai-picker">
+                ${['🤖','🧠','🎓','📚','💡','🦉','🐙','✨','🌟','🧭','⚡','🎯'].map(e => `
+                  <button type="button" class="avatar-option ${getChatRoles().ai.avatar === e ? 'selected' : ''}" data-role="ai" data-emoji="${e}">${e}</button>
+                `).join('')}
+              </div>
+              <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn sm" id="role-ai-upload">上传图片</button>
+                ${getChatRoles().ai.avatar && getChatRoles().ai.avatar.startsWith('data:') ? `<button class="btn sm ghost" id="role-ai-reset">恢复默认</button>` : ''}
+                <input type="file" id="role-ai-file" accept="image/*" hidden>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="role-save">保存</button>
       </div>
     </div>
 
@@ -3651,6 +4282,77 @@ function renderSettings(view) {
     localStorage.removeItem(K_GIST_ID);
     localStorage.removeItem(K_GIST_TOKEN);
     renderView();
+  });
+
+    /* ============ 对话角色配置 ============ */
+  const roleState = {
+    me: { ...getChatRoles().me },
+    ai: { ...getChatRoles().ai }
+  };
+
+  function refreshRolePreview(role) {
+    const preview = view.querySelector(`#role-${role}-preview`);
+    if (preview) preview.innerHTML = renderAvatarHTML(roleState[role].avatar);
+  }
+  function refreshRolePicker(role) {
+    view.querySelectorAll(`[data-role="${role}"][data-emoji]`).forEach(el => {
+      el.classList.toggle('selected', el.dataset.emoji === roleState[role].avatar);
+    });
+  }
+
+  // emoji 选择
+  view.querySelectorAll('[data-role][data-emoji]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const role = btn.dataset.role;
+      roleState[role].avatar = btn.dataset.emoji;
+      refreshRolePreview(role);
+      refreshRolePicker(role);
+    });
+  });
+
+  // 上传图片
+  ['me', 'ai'].forEach(role => {
+    const upBtn = view.querySelector(`#role-${role}-upload`);
+    const fileInput = view.querySelector(`#role-${role}-file`);
+    if (upBtn && fileInput) {
+      upBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', e => {
+        const f = e.target.files[0];
+        if (!f) return;
+        if (!f.type.startsWith('image/')) { alert('请选择图片'); return; }
+        if (f.size > 500 * 1024) { alert('图片不要超过 500KB（否则会占满本地存储）'); return; }
+        const reader = new FileReader();
+        reader.onload = ev => {
+          roleState[role].avatar = ev.target.result;
+          refreshRolePreview(role);
+          refreshRolePicker(role);
+        };
+        reader.readAsDataURL(f);
+        fileInput.value = '';
+      });
+    }
+    // 恢复默认
+    const resetBtn = view.querySelector(`#role-${role}-reset`);
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        roleState[role].avatar = DEFAULT_CHAT_ROLES[role].avatar;
+        refreshRolePreview(role);
+        refreshRolePicker(role);
+      });
+    }
+  });
+
+  // 保存
+  const roleSave = view.querySelector('#role-save');
+  if (roleSave) roleSave.addEventListener('click', () => {
+    const meName = (view.querySelector('#role-me-name').value || '').trim() || '我';
+    const aiName = (view.querySelector('#role-ai-name').value || '').trim() || 'AI';
+    if (meName.length > 12 || aiName.length > 12) { alert('名字最长 12 个字'); return; }
+    setChatRoles(
+      { name: meName, avatar: roleState.me.avatar },
+      { name: aiName, avatar: roleState.ai.avatar }
+    );
+    showToast('已保存');
   });
 
   const elResetStats = view.querySelector('#resetStatsBtn');
@@ -4375,6 +5077,202 @@ function openQuestionDetail(id) {
   persistBrowseState();
 }
 
+/* ============ 视图：个人笔记 ============ */
+function renderNotes(view) {
+  const n = state.notes;
+
+  let list = questions.filter(q => q.personalNote && q.personalNote.trim());
+  if (n.filterModule !== 'all') {
+    list = list.filter(q => q.module === n.filterModule);
+  }
+  if (n.sort === 'updatedAt') {
+    list.sort((a, b) => (b.personalNoteUpdatedAt || 0) - (a.personalNoteUpdatedAt || 0));
+  } else if (n.sort === 'createdAt') {
+    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  } else if (n.sort === 'module') {
+    list.sort((a, b) => {
+      const m = (a.module || '').localeCompare(b.module || '');
+      if (m) return m;
+      return (b.personalNoteUpdatedAt || 0) - (a.personalNoteUpdatedAt || 0);
+    });
+  }
+
+  const total = questions.length;
+  const withNote = questions.filter(q => q.personalNote && q.personalNote.trim()).length;
+  const kpCovered = new Set();
+  questions.forEach(q => {
+    if (q.personalNote && q.personalNote.trim()) {
+      (q.knowledgePoints || []).forEach(k => kpCovered.add(k));
+    }
+  });
+  const coverage = total ? Math.round(withNote / total * 100) : 0;
+
+  /* ============ Hero ============ */
+  let html = `
+    <div class="notes-hero">
+      <div class="notes-hero-head">
+        <div>
+          <div class="notes-hero-title">
+            <span class="icon">📝</span>
+            个人笔记
+          </div>
+          <div class="notes-hero-sub">你对每道题的理解与顿悟，都值得被记下来</div>
+        </div>
+      </div>
+
+      <div class="notes-stats">
+        <div class="notes-stat stat-primary">
+          <div class="notes-stat-label"><span class="ico">🖊️</span>已写笔记</div>
+          <div class="notes-stat-value">${withNote}<span class="unit">条</span></div>
+          <div class="notes-stat-progress"><div class="fill" style="width:${coverage}%"></div></div>
+          <div class="notes-stat-desc">覆盖 ${coverage}% 的错题</div>
+        </div>
+        <div class="notes-stat stat-success">
+          <div class="notes-stat-label"><span class="ico">🎯</span>涉及知识点</div>
+          <div class="notes-stat-value">${kpCovered.size}<span class="unit">个</span></div>
+          <div class="notes-stat-progress"><div class="fill" style="width:${Math.min(100, kpCovered.size * 5)}%"></div></div>
+          <div class="notes-stat-desc">${kpCovered.size ? '已形成自己的知识网' : '写笔记会自动关联知识点'}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (!questions.length) {
+    html += `
+      <div class="card">
+        <div class="empty">
+          <div class="empty-icon">📝</div>
+          <div class="empty-title">还没有错题</div>
+          <div class="empty-desc">先去「错题收录」上传几道题，就可以在题目详情页写笔记了。</div>
+          <div class="actions" style="justify-content:center;margin-top:16px">
+            <button class="btn primary" id="notes-goto-collect">去收录</button>
+          </div>
+        </div>
+      </div>
+    `;
+    view.innerHTML = html;
+    view.querySelector('#notes-goto-collect')?.addEventListener('click', () => {
+      state.mode = 'collect';
+      state.prevMode = 'collect';
+      saveCurrentMode();
+      renderView();
+    });
+    return;
+  }
+
+  const modulesWithNotes = [...new Set(
+    questions.filter(q => q.personalNote && q.personalNote.trim()).map(q => q.module)
+  )].filter(Boolean);
+
+  html += `
+    <div class="card" style="padding:16px 22px">
+      <div class="notes-toolbar">
+        <div>
+          <label>模块</label>
+          <select id="notes-filter-module" class="input">
+            <option value="all" ${n.filterModule === 'all' ? 'selected' : ''}>全部模块</option>
+            ${modulesWithNotes.map(m => `<option value="${esc(m)}" ${m === n.filterModule ? 'selected' : ''}>${esc(m)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label>排序</label>
+          <select id="notes-sort" class="input">
+            <option value="updatedAt" ${n.sort === 'updatedAt' ? 'selected' : ''}>最近更新</option>
+            <option value="createdAt" ${n.sort === 'createdAt' ? 'selected' : ''}>最近收录</option>
+            <option value="module" ${n.sort === 'module' ? 'selected' : ''}>按模块</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (!list.length) {
+    html += `
+      <div class="card">
+        <div class="empty">
+          <div class="empty-icon">✨</div>
+          <div class="empty-title">${withNote === 0 ? '还没有任何笔记' : '当前筛选下没有笔记'}</div>
+          <div class="empty-desc">
+            ${withNote === 0
+              ? '去「错题查看」点进任意一道题，在详情页写下你的第一句笔记吧。'
+              : '试试切换其他模块。'}
+          </div>
+        </div>
+      </div>
+    `;
+    view.innerHTML = html;
+    bindNotesEvents(view);
+    return;
+  }
+
+  html += `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">笔记列表</div>
+          <div class="card-sub">共 ${list.length} 条 · 点击跳转到对应题目</div>
+        </div>
+      </div>
+      ${list.map(q => {
+        const updateTime = q.personalNoteUpdatedAt
+          ? new Date(q.personalNoteUpdatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : '';
+        return `
+          <div class="note-item" data-open-note="${q.id}">
+            <div class="note-head">
+              <div class="note-tags">
+                <span class="tag primary">${esc(q.module)}</span>
+                <span class="tag gray">${esc(q.type)}</span>
+                ${(q.knowledgePoints || []).slice(0, 3).map(k => `<span class="tag gray">${esc(k)}</span>`).join('')}
+                ${(q.knowledgePoints || []).length > 3 ? `<span class="tag gray">+${q.knowledgePoints.length - 3}</span>` : ''}
+              </div>
+              ${updateTime ? `<div class="note-time"><span class="ico">🕒</span>${updateTime}</div>` : ''}
+            </div>
+            <div class="note-stem">${renderStem(q.stem)}</div>
+            <div class="note-content">${esc(q.personalNote).replace(/\n/g, '<br>')}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  view.innerHTML = html;
+  bindNotesEvents(view);
+}
+
+function bindNotesEvents(view) {
+  const n = state.notes;
+
+  const fm = view.querySelector('#notes-filter-module');
+  if (fm) fm.addEventListener('change', e => { n.filterModule = e.target.value; renderView(); });
+
+  const so = view.querySelector('#notes-sort');
+  if (so) so.addEventListener('change', e => { n.sort = e.target.value; renderView(); });
+
+  view.querySelectorAll('[data-open-note]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.openNote;
+      const q = questions.find(x => x.id === id);
+      if (!q) return;
+      // 直接跳到该题详情页
+      state.mode = 'browse';
+      state.prevMode = 'browse';
+      state.browse.filter = { module: 'all', type: 'all', knowledgePoints: [] };
+      state.browse.listIds = sortBrowseList(questions).map(x => x.id);
+      state.browse.selectedId = id;
+      state.browse.detail = { question: q, similar: [] };
+      state.browse.generating = { analysis: false, similar: false };
+      state.browse.editing = false;
+      state.browse.editDraft = null;
+      state.browse.listScrollY = 0;
+      state.browse.pendingScrollRestore = null;
+      persistBrowseState();
+      renderView();
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    });
+  });
+}
+
 /* ---- 详情页 ---- */
 function renderBrowseDetail(view) {
   const b = state.browse;
@@ -4466,6 +5364,8 @@ function renderBrowseDetail(view) {
     </div>
   `;
 
+  html += renderPersonalNoteBlock(q);
+
   /* AI 分析块 */
   const an = q.aiAnalysis;
   const hasAnalysis = an && (an.coreIdea || an.breakthrough);
@@ -4512,7 +5412,19 @@ function renderBrowseDetail(view) {
       </div>
     `;
   } else {
-      // 破题题眼
+
+    // 核心洞察
+  if (an.coreIdea) {
+      html += `
+        <div class="ai-block" style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.08));border-color:rgba(99,102,241,0.15)">
+          <div class="ai-block-head" style="color:#6366f1">
+            <span>🎯</span><span>这道题在考什么</span>
+          </div>
+          <div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.7">${esc(an.coreIdea)}</div>
+        </div>
+      `;
+    }
+        // 破题题眼
   if (an.keyPoints && an.keyPoints.length) {
     html += `
       <div class="ai-block" style="background:linear-gradient(135deg,rgba(250,204,21,0.10),rgba(250,204,21,0.04));border-color:rgba(250,204,21,0.25)">
@@ -4531,18 +5443,6 @@ function renderBrowseDetail(view) {
       </div>
     `;
   }
-
-    // 核心洞察
-  if (an.coreIdea) {
-      html += `
-        <div class="ai-block" style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.08));border-color:rgba(99,102,241,0.15)">
-          <div class="ai-block-head" style="color:#6366f1">
-            <span>🎯</span><span>这道题在考什么</span>
-          </div>
-          <div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.7">${esc(an.coreIdea)}</div>
-        </div>
-      `;
-    }
 
     // 突破口
   if (an.breakthrough) {
@@ -4622,6 +5522,8 @@ function renderBrowseDetail(view) {
     `;
   }
   html += `</div></details>`;
+    /* 个人笔记 */
+
 
   html += renderChatBlock(q);
 
@@ -4829,6 +5731,8 @@ function renderBrowseDetail(view) {
         source: 'AI 举一反三',
         wrongCount: 1, rightCount: 0,
         attemptHistory: [{ t: Date.now(), sel: s._selected, ok: false }],
+        personalNote: '',
+        personalNoteUpdatedAt: 0,
         createdAt: Date.now()
       };
       saveQuestion(qq);
@@ -4837,6 +5741,45 @@ function renderBrowseDetail(view) {
     b.detail.similar = [];
     renderView();
   });
+
+    /* 个人笔记事件 */
+  const noteSave = view.querySelector('#note-save');
+  const noteInput = view.querySelector('#personal-note-input');
+  if (noteSave && noteInput) {
+    noteSave.addEventListener('click', () => {
+      const text = noteInput.value.trim();
+      const old = (q.personalNote || '').trim();
+      if (text === old) { showToast('没有变化'); return; }
+      q.personalNote = text;
+      q.personalNoteUpdatedAt = text ? Date.now() : 0;
+      saveQuestion(q);
+      showToast(text ? '笔记已保存' : '笔记已清空');
+      renderView();
+    });
+  }
+
+  const noteClear = view.querySelector('#note-clear');
+  if (noteClear && noteInput) {
+    noteClear.addEventListener('click', () => {
+      if (!confirm('清空笔记？')) return;
+      noteInput.value = '';
+      q.personalNote = '';
+      q.personalNoteUpdatedAt = 0;
+      saveQuestion(q);
+      showToast('笔记已清空');
+      renderView();
+    });
+  }
+
+  // 支持 Ctrl/Cmd+S 保存当前笔记
+  if (noteInput) {
+    noteInput.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        noteSave?.click();
+      }
+    });
+  }
 
     /* 追问 AI 事件 */
   const chatGoto = view.querySelector('#chat-goto-settings');
@@ -4873,6 +5816,46 @@ function renderBrowseDetail(view) {
   });
 }
 
+/* ============ 个人笔记卡片 ============ */
+function renderPersonalNoteBlock(q) {
+  const collapsed = localStorage.getItem('xc_collapse_d_note') === '1';
+  const hasNote = !!(q.personalNote && q.personalNote.trim());
+  const updateTime = q.personalNoteUpdatedAt
+    ? new Date(q.personalNoteUpdatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  return `
+    <details class="card collapsible" ${collapsed ? '' : 'open'} data-collapse-key="xc_collapse_d_note">
+      <summary>
+        <div>
+          <div class="card-title">📝 珍贵的个人笔记</div>
+          <div class="card-sub">记录你对这道题的理解、顿悟、易错点</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          ${hasNote ? `<span class="tag" style="background:var(--warn-soft);color:var(--warn)">已有笔记</span>` : `<span class="tag gray">未写</span>`}
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+      </summary>
+      <div class="card-body">
+        <textarea id="personal-note-input" class="input" rows="3"
+          placeholder="写下你的理解...">${esc(q.personalNote || '')}</textarea>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:10px;flex-wrap:wrap">
+          <div style="font-size:11px;color:var(--text-3)">
+            ${updateTime ? `上次保存：${updateTime}` : '还没有笔记'}
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn ghost sm" id="note-clear" ${!hasNote ? 'disabled' : ''}>清空</button>
+            <button class="btn primary sm" id="note-save">保存笔记</button>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:8px">💡 每次编辑后记得点保存；笔记会自动同步到云端（如已配置）</div>
+      </div>
+    </details>
+  `;
+}
+
 /* ============ 追问 AI ============ */
 function renderChatBlock(q) {
   const b = state.browse;
@@ -4880,6 +5863,7 @@ function renderChatBlock(q) {
   const hasKey = !!getApiKey();
   const suggestions = q.chatSuggestions || [];
   const chatCollapsed = localStorage.getItem('xc_collapse_d_chat') === '1';
+  const ROLES = getChatRoles();
 
   let html = `
     <details class="card collapsible" ${chatCollapsed ? '' : 'open'} data-collapse-key="xc_collapse_d_chat">
@@ -4906,11 +5890,12 @@ function renderChatBlock(q) {
           <button class="btn primary" id="chat-goto-settings">去设置</button>
         </div>
       </div>
+      </div></details>
     `;
-    html += `</div></details>`;
     return html;
   }
 
+  /* ============ 无历史：显示快捷提问 ============ */
   if (!history.length) {
     html += `
       <div class="chat-suggest">
@@ -4925,6 +5910,7 @@ function renderChatBlock(q) {
       </div>
     `;
   } else {
+    /* ============ 有历史：渲染消息 ============ */
     html += `
       <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
         <button class="btn ghost sm" id="chat-clear" title="清空该题的所有对话">
@@ -4940,12 +5926,14 @@ function renderChatBlock(q) {
       <div class="chat-history" id="chat-history">
         ${history.map((m, i) => {
           const isEditing = b.chatEditingIdx === i && m.role === 'user';
+          const roleInfo = m.role === 'user' ? ROLES.me : ROLES.ai;
           if (m.role === 'user') {
             return `
               <div class="chat-msg user">
-                <div class="chat-role">我</div>
+                <div class="chat-role">${renderAvatarHTML(roleInfo.avatar)}</div>
                 ${isEditing ? `
                   <div style="flex:1;max-width:calc(100% - 40px);min-width:0">
+                    <div class="chat-role-name" style="text-align:right">${esc(roleInfo.name)}</div>
                     <textarea class="input" id="edit-chat-input" rows="2" style="width:100%;font-size:13px;line-height:1.7">${esc(m.text)}</textarea>
                     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
                       <button class="btn ghost sm" data-cancel-edit="${i}">取消</button>
@@ -4960,6 +5948,7 @@ function renderChatBlock(q) {
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                       </svg>
                     </button>
+                    <div class="chat-role-name" style="text-align:right">${esc(roleInfo.name)}</div>
                     <div class="chat-text">${formatChatText(m.text)}</div>
                   </div>
                 `}
@@ -4968,17 +5957,23 @@ function renderChatBlock(q) {
           } else {
             return `
               <div class="chat-msg ai">
-                <div class="chat-role">AI</div>
-                <div class="chat-text">${formatChatText(m.text)}</div>
+                <div class="chat-role">${renderAvatarHTML(roleInfo.avatar)}</div>
+                <div style="max-width:calc(100% - 40px);min-width:0">
+                  <div class="chat-role-name">${esc(roleInfo.name)}</div>
+                  <div class="chat-text">${formatChatText(m.text)}</div>
+                </div>
               </div>
             `;
           }
         }).join('')}
         ${b.chatLoading ? `
           <div class="chat-msg ai">
-            <div class="chat-role">AI</div>
-            <div class="chat-text" style="display:flex;align-items:center;gap:8px;color:var(--text-3)">
-              <span class="spinner"></span> 思考中…
+            <div class="chat-role">${renderAvatarHTML(ROLES.ai.avatar)}</div>
+            <div style="max-width:calc(100% - 40px);min-width:0">
+              <div class="chat-role-name">${esc(ROLES.ai.name)}</div>
+              <div class="chat-text" style="display:flex;align-items:center;gap:8px;color:var(--text-3)">
+                <span class="spinner"></span> 思考中…
+              </div>
             </div>
           </div>
         ` : ''}
@@ -6473,13 +7468,32 @@ ${commonTail}`;
 
 /* ============ 导航辅助 ============ */
 function openSettings() {
-  state.prevMode = state.mode === 'settings' ? state.prevMode : state.mode;
-  state.mode = 'settings';
-  renderView();
+  try {
+    if (state.mode !== 'settings') {
+      // 记住进入设置前的 Tab（供返回用）
+      localStorage.setItem('xc_last_non_settings', state.mode);
+      state.prevMode = state.mode;
+    }
+    state.mode = 'settings';
+    saveCurrentMode();
+    renderView();
+  } catch (err) {
+    console.error('打开设置失败：', err);
+    alert('打开设置失败：' + err.message);
+  }
 }
 
 function goBack() {
-  state.mode = state.prevMode || 'collect';
+  // 从设置页返回时，优先用最近一次非 settings 的 Tab
+  if (state.mode === 'settings') {
+    const lastNonSettings = localStorage.getItem('xc_last_non_settings');
+    state.mode = (lastNonSettings && ['collect','exam','browse','analysis'].includes(lastNonSettings))
+      ? lastNonSettings
+      : (state.prevMode && state.prevMode !== 'settings' ? state.prevMode : 'collect');
+  } else {
+    state.mode = state.prevMode || 'collect';
+  }
+  saveCurrentMode();
   renderView();
 }
 
@@ -6495,6 +7509,7 @@ function renderView() {
   if (state.mode === 'collect') renderCollect(view);
   else if (state.mode === 'exam') renderExam(view);
   else if (state.mode === 'browse') renderBrowse(view);
+  else if (state.mode === 'notes') renderNotes(view);
   else if (state.mode === 'analysis') renderAnalysis(view);
   else if (state.mode === 'settings') renderSettings(view);
   updateStatusChip();
@@ -6655,7 +7670,7 @@ document.addEventListener('keydown', e => {
   /* F1-F4 切换主界面（F5 不劫持，留给浏览器刷新） */
   if (['F1','F2','F3','F4'].includes(e.key)) {
     e.preventDefault();
-    const map = { 'F1': 'collect', 'F2': 'exam', 'F3': 'browse', 'F4': 'analysis' };
+    const map = { 'F1': 'collect', 'F2': 'exam', 'F3': 'browse', 'F4': 'notes' };
     const target = map[e.key];
     state.mode = target;
     state.prevMode = target;
@@ -6712,6 +7727,7 @@ document.addEventListener('keydown', e => {
       state.browse.selectedId = null;
       state.browse.detail = null;
       renderView();
+      persistBrowseState();
       return;
     }
     if (state.mode === 'settings') { goBack(); return; }
@@ -6787,12 +7803,12 @@ document.querySelectorAll('.nav button').forEach(btn => {
     }
   } catch (e) { console.warn('清理旧缓存失败：', e); }
 
-  // 恢复上次所在 Tab
+  // 恢复上次所在 Tab（含设置页）
   const savedMode = localStorage.getItem('xc_mode');
-  const validModes = ['collect','exam','browse','analysis'];
+  const validModes = ['collect','exam','browse','notes','analysis','settings'];
   if (savedMode && validModes.includes(savedMode)) {
     state.mode = savedMode;
-    state.prevMode = savedMode;
+    state.prevMode = savedMode === 'settings' ? (state.prevMode || 'collect') : savedMode;
   }
     // 恢复 AI 分析页当前层级的缓存报告（14 天内有效）
   if (state.mode === 'analysis') {
@@ -6810,25 +7826,49 @@ document.querySelectorAll('.nav button').forEach(btn => {
   // 恢复更细的浏览状态
   const lastBrowse = loadBrowseState();
   let restoreScrollY = 0;
-  if (lastBrowse) {
-    if (validModes.includes(lastBrowse.mode)) {
-      state.mode = lastBrowse.mode;
-      state.prevMode = lastBrowse.mode;
-    }
+
+  // 只有当前 Tab 是 browse 时，才恢复它的详细状态
+  // 其他 Tab 忽略 lastBrowse，避免被强行拉回错题查看
+  if (lastBrowse && state.mode === 'browse') {
     restoreScrollY = Number(lastBrowse.scrollY) || 0;
-    // 尝试恢复详情页
-    if (lastBrowse.selectedId && state.mode === 'browse') {
+
+    // 恢复筛选条件
+    if (lastBrowse.filter && typeof lastBrowse.filter === 'object') {
+      state.browse.filter = {
+        module: lastBrowse.filter.module || 'all',
+        type: lastBrowse.filter.type || 'all',
+        knowledgePoints: Array.isArray(lastBrowse.filter.knowledgePoints)
+          ? lastBrowse.filter.knowledgePoints
+          : []
+      };
+    }
+
+    if (lastBrowse.selectedId) {
       const q = questions.find(x => x.id === lastBrowse.selectedId);
       if (q) {
         state.browse.selectedId = q.id;
         state.browse.detail = { question: q, similar: [] };
         state.browse.generating = { analysis: false, similar: false };
-        // 重建列表顺序（用于上/下题切换）
-        state.browse.listIds = sortBrowseList(questions).map(x => x.id);
+        const filtered = filterQuestions(state.browse.filter);
+        state.browse.listIds = sortBrowseList(filtered).map(x => x.id);
         state.browse.listScrollY = 0;
         state.browse.pendingScrollRestore = null;
       }
     }
+  }
+
+    // 一次性清掉历史遗留的 stale selectedId（只在非 browse 页时）
+  if (state.mode !== 'browse') {
+    try {
+      const raw = localStorage.getItem('xc_browse_state');
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s.selectedId) {
+          s.selectedId = null;
+          localStorage.setItem('xc_browse_state', JSON.stringify(s));
+        }
+      }
+    } catch {}
   }
 
   renderView();
@@ -6843,6 +7883,8 @@ document.querySelectorAll('.nav button').forEach(btn => {
   let cleaned = 0;
   questions.forEach(q => {
     if (!Array.isArray(q.options)) return;
+    if (typeof q.personalNote !== 'string') q.personalNote = '';
+    if (typeof q.personalNoteUpdatedAt !== 'number') q.personalNoteUpdatedAt = 0;
     const cleanedOpts = q.options.map(s => stripOptionPrefix(s));
     if (JSON.stringify(cleanedOpts) !== JSON.stringify(q.options)) {
       q.options = cleanedOpts;
@@ -6904,7 +7946,8 @@ document.querySelectorAll('.nav button').forEach(btn => {
   });
   // 滚动时持续记录位置（仅在有 selectedId 或处于列表页时）
   window.addEventListener('scroll', () => {
-    if (state.mode === 'browse' || state.mode === 'collect' || state.mode === 'analysis') {
+    // 只记录错题查看页的滚动位置（其他页面无意义）
+    if (state.mode === 'browse') {
       persistScrollThrottled();
     }
   }, { passive: true });
