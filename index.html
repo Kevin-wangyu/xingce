@@ -4,7 +4,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2563eb">
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>行测错题本 · AI 学习助手</title>
 
 <script>
@@ -2253,6 +2253,94 @@ details.card.collapsible > .card-body {
   opacity: 0; pointer-events: none;
   transition: opacity .25s ease, transform .25s ease;
   display: none;
+}
+.q-list-item,
+.note-item,
+.recent-item,
+.drill-card {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.note-content,
+.detail-stem,
+.chat-text {
+  -webkit-touch-callout: default;
+  user-select: text;
+}
+@media (max-width: 640px) {
+  .nav {
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav button {
+    flex-shrink: 0;
+    padding: 12px 14px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+}
+@media (max-width: 640px) {
+  .btn { padding: 11px 18px; font-size: 14px; }
+  .btn.sm { padding: 9px 14px; font-size: 13px; min-height: 38px; }
+  .icon-btn { width: 40px; height: 40px; }
+  .tag { padding: 4px 11px; font-size: 12px; }
+  .exam-opt { padding: 15px 16px; font-size: 15px; }
+  .option { padding: 15px 16px; }
+  .chat-suggest-btn { padding: 9px 16px; font-size: 13px; }
+  .tag { padding: 4px 10px; }
+  .kp-tag { padding: 5px 10px 5px 12px; font-size: 13px; }
+}
+
+@media (hover: none) {
+  .chat-edit-btn { opacity: 0.6 !important; }
+  .q-list-item:hover { background: transparent; }
+  .note-item:hover { transform: none; }
+  .drill-card:hover { transform: none; }
+  .recent-item:hover { background: transparent; box-shadow: none; }
+  /* 用触摸高亮代替 hover 反馈 */
+  .chat-edit-btn:active,
+  .drill-card:active,
+  .note-item:active,
+  .q-list-item:active { background: var(--surface-2); }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 0 14px; }
+  .topbar-row { height: 52px; }
+  .brand-sub { display: none; }       /* 隐藏 "AI 学习助手" 小字 */
+  .status-chip { font-size: 11px; padding: 4px 9px; }
+  .status-chip span:nth-child(3),
+  .status-chip span:nth-child(4) { display: none; }  /* 隐藏 "|Cache 30MB" 部分 */
+  .topbar { position: sticky; top: 0; }
+  .card { padding: 18px 16px; margin-top: 12px; }
+  .card-head { margin-bottom: 12px; padding-bottom: 10px; }
+}
+@media (max-width: 640px) {
+  textarea.input:focus,
+  input.input:focus {
+    scroll-margin-bottom: 320px;   /* 键盘弹出时给输入框留空间 */
+  }
+}
+@media (max-width: 768px) {
+  .row2 { grid-template-columns: 1fr; }
+  .row4 { grid-template-columns: 1fr 1fr; }
+  .hero-stats { grid-template-columns: 1fr; }
+  .notes-stats { grid-template-columns: 1fr; }
+  .drill-grid { grid-template-columns: 1fr; }
+}
+@media (hover: none) and (pointer: coarse) {
+  .kbd-hint,
+  .about-feature code { display: none; }
+}
+#saveTip {
+  top: calc(20px + env(safe-area-inset-top, 0px));
+}
+#welcomeTip {
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  right: calc(20px + env(safe-area-inset-right, 0px));
 }
 </style>
 </head>
@@ -7778,6 +7866,16 @@ document.querySelectorAll('.nav button').forEach(btn => {
       if (lastSync) lastSyncedAt = lastSync;
     } catch (e) { console.warn('IDB 读取失败', e); }
   }
+  // 在 boot() 里加
+  if (window.innerWidth < 768) {
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 600) {
+        showBackTopButton();
+      } else {
+        hideBackTopButton();
+      }
+    }, { passive: true });
+  }
 
   // 一次性清理旧格式 AI 报告缓存（只执行一次）
   try {
@@ -7953,6 +8051,15 @@ document.querySelectorAll('.nav button').forEach(btn => {
 })();
 
 function showWelcome() {
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (isMobile) {
+    tip.querySelector('p').innerHTML = `
+      三步开始：<br>
+      1️⃣ 到设置页配置 DeepSeek API Key<br>
+      2️⃣ 到「错题收录」选图片或拍照<br>
+      3️⃣ 之后在考试、查看、分析里使用
+    `;
+  }
   const tip = document.createElement('div');
   tip.id = 'welcomeTip';
   tip.innerHTML = `
