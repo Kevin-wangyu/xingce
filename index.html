@@ -6008,21 +6008,17 @@ function renderChatBlock(q) {
 
 /* 简单格式化：加粗、换行、列表 */
 function formatChatText(text) {
-  let s = String(text || '');
-  // 先把常见"不可见空白"转成普通空格
-  s = s.replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, ' ');
-  // 去行首行尾空白
-  s = s.replace(/[ \t]+(?=\n)/g, '');
-  s = s.replace(/\n[ \t]+/g, '\n');
-  // 转义（在转义前先做空白处理，避免影响 &#160; 等实体）
-  s = esc(s);
+  let s = esc(text || '');
   // 加粗
   s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  // 列表项
+  // 列表项：把连续的 "- xxx" 打包成 ul
   s = s.replace(/^[ \t]*[-*]\s+(.+)$/gm, '<li>$1</li>');
   s = s.replace(/(?:<li>[\s\S]*?<\/li>\n?)+/g, m => `<ul>${m.replace(/\n/g, '')}</ul>`);
-  // 所有换行全部去掉（段落直接连在一起，不再有空行）
-  s = s.replace(/\n+/g, '');
+  // 把所有连续空行压成一个换行
+  s = s.replace(/\n{2,}/g, '\n');
+  s = s.replace(/\n/g, '<br>');
+  // 保险：把残留的 <br><br>+ 压成一个
+  s = s.replace(/(<br>){2,}/g, '<br>');
   return s;
 }
 
