@@ -1,8 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2563eb">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>行测错题本 · AI 学习助手</title>
@@ -2216,44 +2214,7 @@ details.card.collapsible > .card-body {
   background: linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.05));
   border-left-color: #818cf8;
 }
-/* 首次引导 toast */
-#welcomeTip {
-  position: fixed; bottom: 28px; right: 28px;
-  max-width: 340px; padding: 16px 18px;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 12px; box-shadow: var(--shadow-lg);
-  z-index: 200;
-  transform: translateY(20px); opacity: 0;
-  transition: all .3s ease;
-}
-#welcomeTip.show { transform: translateY(0); opacity: 1; }
-#welcomeTip .head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 8px;
-}
-#welcomeTip .head b { font-size: 13px; color: var(--text); }
-#welcomeTip .head button {
-  border: none; background: transparent; color: var(--text-3);
-  cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px;
-  font-family: inherit;
-}
-#welcomeTip p {
-  font-size: 12.5px; line-height: 1.65; color: var(--text-2);
-  margin-bottom: 10px;
-}
-#welcomeTip .acts { display: flex; gap: 8px; }
 
-/* Toast */
-#saveTip {
-  position: fixed; top: 88px; left: 50%; transform: translateX(-50%) translateY(-8px);
-  background: var(--success); color: #fff;
-  padding: 9px 22px; border-radius: 8px;
-  font-size: 13px; font-weight: 600; z-index: 100;
-  box-shadow: var(--shadow-lg);
-  opacity: 0; pointer-events: none;
-  transition: opacity .25s ease, transform .25s ease;
-  display: none;
-}
 .q-list-item,
 .note-item,
 .recent-item,
@@ -2335,12 +2296,44 @@ details.card.collapsible > .card-body {
   .kbd-hint,
   .about-feature code { display: none; }
 }
-#saveTip {
-  top: calc(20px + env(safe-area-inset-top, 0px));
-}
+
+/* 首次引导 toast */
 #welcomeTip {
-  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  right: calc(20px + env(safe-area-inset-right, 0px));
+  position: fixed; bottom: 28px; right: 28px;
+  max-width: 340px; padding: 16px 18px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow-lg);
+  z-index: 200;
+  transform: translateY(20px); opacity: 0;
+  transition: all .3s ease;
+}
+#welcomeTip.show { transform: translateY(0); opacity: 1; }
+#welcomeTip .head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+#welcomeTip .head b { font-size: 13px; color: var(--text); }
+#welcomeTip .head button {
+  border: none; background: transparent; color: var(--text-3);
+  cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px;
+  font-family: inherit;
+}
+#welcomeTip p {
+  font-size: 12.5px; line-height: 1.65; color: var(--text-2);
+  margin-bottom: 10px;
+}
+#welcomeTip .acts { display: flex; gap: 8px; }
+
+/* Toast */
+#saveTip {
+  position: fixed; top: 88px; left: 50%; transform: translateX(-50%) translateY(-8px);
+  background: var(--success); color: #fff;
+  padding: 9px 22px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; z-index: 100;
+  box-shadow: var(--shadow-lg);
+  opacity: 0; pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+  display: none;
 }
 </style>
 </head>
@@ -3608,6 +3601,10 @@ function renderCollect(view) {
   }
 
   view.innerHTML = html;
+  // 恢复图片区和底部按钮的显示状态
+  updateImagesCountLabel();
+  updateCollectFooter();
+  updateOcrProgressText();
   bindCollectEvents();
 }
 
@@ -7866,16 +7863,6 @@ document.querySelectorAll('.nav button').forEach(btn => {
       if (lastSync) lastSyncedAt = lastSync;
     } catch (e) { console.warn('IDB 读取失败', e); }
   }
-  // 在 boot() 里加
-  if (window.innerWidth < 768) {
-    window.addEventListener('scroll', () => {
-      if (window.scrollY > 600) {
-        showBackTopButton();
-      } else {
-        hideBackTopButton();
-      }
-    }, { passive: true });
-  }
 
   // 一次性清理旧格式 AI 报告缓存（只执行一次）
   try {
@@ -7994,7 +7981,6 @@ document.querySelectorAll('.nav button').forEach(btn => {
     scheduleFlush();
   }
 
-
   // 后台预热 PaddleOCR
   if (canUsePaddle() && !_paddleFailed) {
     setTimeout(() => {
@@ -8051,15 +8037,6 @@ document.querySelectorAll('.nav button').forEach(btn => {
 })();
 
 function showWelcome() {
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  if (isMobile) {
-    tip.querySelector('p').innerHTML = `
-      三步开始：<br>
-      1️⃣ 到设置页配置 DeepSeek API Key<br>
-      2️⃣ 到「错题收录」选图片或拍照<br>
-      3️⃣ 之后在考试、查看、分析里使用
-    `;
-  }
   const tip = document.createElement('div');
   tip.id = 'welcomeTip';
   tip.innerHTML = `
