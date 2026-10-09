@@ -2228,6 +2228,63 @@ details.card.collapsible > .card-body {
   -webkit-touch-callout: default;
   user-select: text;
 }
+/* ============ 错题列表分页 ============ */
+.pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}
+.pagination-info {
+  font-size: 12.5px;
+  color: var(--text-3);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.pagination-controls {
+  display: flex; align-items: center; gap: 6px;
+  flex-wrap: wrap;
+}
+.pagination-jump {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12.5px; color: var(--text-2);
+  padding: 0 6px;
+}
+.pagination-input {
+  width: 52px; padding: 4px 6px;
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  background: var(--input-bg); color: var(--text);
+  font-family: inherit; font-size: 12px;
+  text-align: center;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.pagination-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.12);
+}
+.pagination-size {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--text-2);
+  flex-shrink: 0;
+}
+/* 修复列表 hover 只在条目上，不在整个卡片 */
+.q-list { margin: 0; padding: 0; }
+.q-list-item {
+  padding: 14px 12px;
+  margin: 0 -12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .12s;
+  border-radius: 8px;
+}
+.q-list-item:last-child { border-bottom: none; }
+.q-list-item:hover { background: var(--hover-bg); }
+
+/* 分页底部不要额外留白 */
+.pagination { padding: 14px 0 0; margin-top: 10px; }
+.card .pagination:last-child { padding-bottom: 0; }
 @media (max-width: 640px) {
   .nav {
     overflow-x: auto;
@@ -2729,10 +2786,11 @@ function persistBrowseState() {
   try {
     const inBrowse = state.mode === 'browse';
     const payload = {
-      // 只有当前在错题查看页时，才保留 selectedId
-      // 切到其他 Tab 说明用户不再看这道题，下次刷新应回列表
       selectedId: (inBrowse && state.browse?.selectedId) ? state.browse.selectedId : null,
       filter: state.browse?.filter || { module: 'all', type: 'all', knowledgePoints: [] },
+      sortBy: state.browse?.sortBy || 'wrongCount',
+      page: state.browse?.page || 1,
+      pageSize: state.browse?.pageSize || 20,
       scrollY: window.scrollY || document.documentElement.scrollTop || 0,
       ts: Date.now()
     };
@@ -3145,6 +3203,9 @@ const state = {
     chatInput: '',
     chatLoading: false,
     chatEditingIdx: null,   // 正在编辑第几条用户消息（null=不在编辑）
+    sortBy: 'wrongCount',
+    page: 1,
+    pageSize: 20,
   },
   notes: {
     sort: 'updatedAt',  // 'updatedAt' | 'createdAt' | 'module'
@@ -3161,92 +3222,47 @@ const state = {
 };
 
 /* ============ OCR ============ */
-/* ============ OCR 引擎管理（Worker 版） ============ */
-let _ocrWorker = null;
-let _ocrWorkerPromise = null;
-let _ocrReqId = 0;
-const _ocrPending = new Map();
+/* ============ OCR 引擎管理 ============ */
 let _paddleFailed = false;
+let _paddleOcr = null;
+let _paddleOcrPromise = null;
 
 function canUsePaddle() {
   return location.protocol === 'http:' || location.protocol === 'https:';
 }
 
-function getOcrWorker() {
-  if (_ocrWorker) return Promise.resolve(_ocrWorker);
-  if (_ocrWorkerPromise) return _ocrWorkerPromise;
-  if (!canUsePaddle()) {
-    return Promise.reject(new Error('需要 HTTP(S) 环境'));
-  }
-
-  _ocrWorkerPromise = new Promise((resolve, reject) => {
-    let w;
-    try {
-      w = new Worker('ocr-worker.js', { type: 'module' });
-    } catch (err) {
-      _ocrWorkerPromise = null;
-      reject(new Error('Worker 创建失败：' + err.message));
-      return;
-    }
-
-    // 3 分钟超时（首次下载模型可能慢）
-    const timeout = setTimeout(() => {
-      if (!_ocrWorker) {
-        _ocrWorkerPromise = null;
-        try { w.terminate(); } catch {}
-        reject(new Error('Worker 初始化超时'));
-      }
-    }, 180000);
-
-    w.onmessage = (e) => {
-      const { id, ok, text, error, warmup } = e.data || {};
-      const cb = _ocrPending.get(id);
-      if (!cb) return;
-      _ocrPending.delete(id);
-      if (ok) cb.resolve(text);
-      else cb.reject(new Error(error || '未知错误'));
-    };
-
-    w.onerror = (e) => {
-      console.error('[Worker] 错误：', e);
-      _paddleFailed = true;
-      _ocrWorker = null;
-      _ocrWorkerPromise = null;
-      // 通知所有等待中的请求
-      for (const [id, cb] of _ocrPending) {
-        cb.reject(new Error('Worker 崩溃：' + (e.message || '未知')));
-      }
-      _ocrPending.clear();
-      clearTimeout(timeout);
-    };
-
-    _ocrWorker = w;
-    clearTimeout(timeout);
-    resolve(w);
-  });
-
-  return _ocrWorkerPromise;
-}
-
-/* 预热：让 Worker 提前加载模型 */
 async function initPaddleOCR() {
-  const w = await getOcrWorker();
-  return new Promise((resolve, reject) => {
-    const id = ++_ocrReqId;
-    _ocrPending.set(id, { resolve, reject });
-    w.postMessage({ id, type: 'warmup' });
-  });
+  if (_paddleOcr) return _paddleOcr;
+  if (_paddleFailed) throw new Error('PaddleOCR 已失败');
+  if (_paddleOcrPromise) return _paddleOcrPromise;
+  if (!canUsePaddle()) {
+    _paddleFailed = true;
+    throw new Error('需要 HTTP(S) 环境');
+  }
+  _paddleOcrPromise = (async () => {
+    try {
+      const mod = await import('https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm');
+      const ocr = await mod.PaddleOCR.create({
+        lang: 'ch',
+        ocrVersion: 'PP-OCRv5',
+        ortOptions: { backend: 'wasm' }
+      });
+      _paddleOcr = ocr;
+      return ocr;
+    } catch (e) {
+      _paddleFailed = true;
+      throw e;
+    } finally {
+      _paddleOcrPromise = null;
+    }
+  })();
+  return _paddleOcrPromise;
 }
 
-/* 通过 Worker 识别一张图片 */
 async function ocrWithPaddle(file) {
-  const w = await getOcrWorker();
-  const buffer = await file.arrayBuffer();
-  const id = ++_ocrReqId;
-  return new Promise((resolve, reject) => {
-    _ocrPending.set(id, { resolve, reject });
-    w.postMessage({ id, buffer, mime: file.type });
-  });
+  const ocr = await initPaddleOCR();
+  const [result] = await ocr.predict(file);
+  return (result?.items || []).map(it => it.text).join('\n');
 }
 
 
@@ -4926,8 +4942,37 @@ function renderBrowse(view) {
   if (state.browse.selectedId) renderBrowseDetail(view);
   else renderBrowseList(view);
 }
+/* 分页控件 HTML */
+function renderPagination(page, totalPages, total, start, end, pageSize) {
+  return `
+    <div class="pagination">
+      <div class="pagination-info">显示 ${start + 1}-${end} / 共 ${total} 题</div>
+      <div class="pagination-controls">
+        <button class="btn sm" data-page="first" ${page <= 1 ? 'disabled' : ''}>首页</button>
+        <button class="btn sm" data-page="prev" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+        <span class="pagination-jump">
+          第 <input type="number" class="pagination-input" id="page-input" min="1" max="${totalPages}" value="${page}"> / ${totalPages} 页
+        </span>
+        <button class="btn sm" data-page="next" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+        <button class="btn sm" data-page="last" ${page >= totalPages ? 'disabled' : ''}>末页</button>
+      </div>
+      <div class="pagination-size">
+        每页
+        <select id="page-size" class="input" style="width:auto;padding:4px 26px 4px 10px;font-size:12px">
+          ${[10, 20, 30, 50, 100].map(n => `<option value="${n}" ${pageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
+          <option value="all" ${pageSize === 'all' ? 'selected' : ''}>全部</option>
+        </select>
+      </div>
+    </div>
+  `;
+}
 /* 错题列表排序：先按错误次数降序，再按创建时间降序 */
-function sortBrowseList(list) {
+function sortBrowseList(list, mode) {
+  const m = mode || 'wrongCount';
+  if (m === 'createdAt') {
+    return [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+  // 默认：按错误次数降序，次数相同按创建时间降序
   return [...list].sort((a, b) =>
     (b.wrongCount || 0) - (a.wrongCount || 0) ||
     (b.createdAt || 0) - (a.createdAt || 0)
@@ -4939,6 +4984,7 @@ function renderBrowseList(view) {
   const b = state.browse;
   const f = b.filter;
   const pool = filterQuestions(f);
+
   const kw = (state.search || '').trim().toLowerCase();
   const filtered = kw ? pool.filter(q =>
     q.stem.toLowerCase().includes(kw) ||
@@ -4947,7 +4993,7 @@ function renderBrowseList(view) {
 
   const types = f.module === 'all' ? Object.values(CATEGORIES).flat() : (CATEGORIES[f.module] || []);
   const kpSet = new Set();
-  pool.forEach(q => (q.knowledgePoints || []).forEach(k => kpSet.add(k)));
+  filtered.forEach(q => (q.knowledgePoints || []).forEach(k => kpSet.add(k)));
   const kpList = [...kpSet].sort();
 
   if (!questions.length) {
@@ -4955,6 +5001,7 @@ function renderBrowseList(view) {
       <div class="card">
         <div class="card-head">
           <div><div class="card-title">错题查看</div><div class="card-sub">按分类浏览</div></div>
+          <span class="tag gray">第 4 步</span>
         </div>
         <div class="empty">
           <div class="empty-icon">📚</div>
@@ -4966,6 +5013,8 @@ function renderBrowseList(view) {
     return;
   }
 
+  const sortSubtitle = b.sortBy === 'createdAt' ? '按添加时间（新→旧）' : '按错误次数（高→低）';
+
   let html = `
     <div class="card">
       <div class="card-head">
@@ -4973,6 +5022,7 @@ function renderBrowseList(view) {
           <div class="card-title">错题查看</div>
           <div class="card-sub">按模块 / 题型 / 知识点筛选</div>
         </div>
+        <span class="tag primary">第 4 步</span>
       </div>
 
       <div class="browse-filters">
@@ -4992,6 +5042,14 @@ function renderBrowseList(view) {
         </div>
       </div>
 
+      <div class="search-box">
+        <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input id="browse-search" class="input" type="text" placeholder="搜索题干关键词…" value="${esc(state.search || '')}">
+        ${state.search ? '<button class="clear" id="browse-search-clear" title="清除">×</button>' : ''}
+      </div>
+
       <label>知识点</label>
       <div class="kp-wrap scrollable" style="min-height:44px">
         ${kpList.length ? kpList.map(k => {
@@ -5006,19 +5064,12 @@ function renderBrowseList(view) {
         }).join('') : '<span style="color:var(--text-3);font-size:12px">当前范围内没有知识点</span>'}
       </div>
 
-      <div class="search-box">
-        <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input id="browse-search" class="input" type="text" placeholder="搜索题干关键词…" value="${esc(state.search)}">
-        ${state.search ? '<button class="clear" id="browse-search-clear" title="清除">×</button>' : ''}
-      </div>
-
       <div class="filter-stats">
         共 <b>${filtered.length}</b> 题
         ${f.module !== 'all' ? ` · 模块 <b>${esc(f.module)}</b>` : ''}
         ${f.type !== 'all' ? ` · 题型 <b>${esc(f.type)}</b>` : ''}
         ${f.knowledgePoints.length ? ` · 知识点 <b>${f.knowledgePoints.length}</b> 个` : ''}
+        ${kw ? ` · 搜索 "<b>${esc(kw)}</b>"` : ''}
       </div>
     </div>
   `;
@@ -5033,17 +5084,39 @@ function renderBrowseList(view) {
         </div>
       </div>
     `;
-  } else {
-    const sorted = sortBrowseList(filtered);
-    html += `
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">错题列表</div>
-            <div class="card-sub">按错误次数降序</div>
-          </div>
+    view.innerHTML = html;
+    bindBrowseFilterEvents(view, pool, filtered);
+    return;
+  }
+
+  /* 排序 + 分页 */
+  const sorted = sortBrowseList(filtered, b.sortBy);
+  const pageSize = b.pageSize || 20;
+  const isAll = pageSize === 'all';
+  const total = sorted.length;
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(total / pageSize));
+  let curPage = b.page || 1;
+  if (curPage > totalPages) curPage = totalPages;
+  if (curPage < 1) curPage = 1;
+  b.page = curPage;
+  const start = isAll ? 0 : (curPage - 1) * pageSize;
+  const end = isAll ? total : Math.min(start + pageSize, total);
+  const pageList = sorted.slice(start, end);
+
+  html += `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">错题列表</div>
+          <div class="card-sub">共 ${total} 题 · ${sortSubtitle}</div>
         </div>
-        ${sorted.map(q => `
+        <select id="browse-sort" class="input" style="width:auto;min-width:170px;padding:6px 32px 6px 12px;font-size:12.5px">
+          <option value="wrongCount" ${b.sortBy === 'wrongCount' ? 'selected' : ''}>按错误次数</option>
+          <option value="createdAt" ${b.sortBy === 'createdAt' ? 'selected' : ''}>按添加时间</option>
+        </select>
+      </div>
+      <div class="q-list" id="q-list">
+        ${pageList.map(q => `
           <div class="q-list-item" data-open-q="${q.id}">
             <div class="q-list-head">
               <div class="q-list-meta">
@@ -5061,28 +5134,40 @@ function renderBrowseList(view) {
           </div>
         `).join('')}
       </div>
-    `;
-  }
+      ${renderPagination(curPage, totalPages, total, start, end, pageSize)}
+    </div>
+  `;
 
   view.innerHTML = html;
+  bindBrowseFilterEvents(view, pool, filtered, sorted);
+}
 
-  view.querySelector('#browse-module').addEventListener('change', ev => {
-    f.module = ev.target.value;
+function bindBrowseFilterEvents(view, pool, filtered, sorted) {
+  const f = state.browse.filter;
+
+  const fm = view.querySelector('#browse-module');
+  if (fm) fm.addEventListener('change', e => {
+    f.module = e.target.value;
     f.type = 'all';
     f.knowledgePoints = [];
+    state.browse.page = 1;
     renderView();
   });
-  view.querySelector('#browse-type').addEventListener('change', ev => {
-    f.type = ev.target.value;
+  const ft = view.querySelector('#browse-type');
+  if (ft) ft.addEventListener('change', e => {
+    f.type = e.target.value;
     f.knowledgePoints = [];
+    state.browse.page = 1;
     renderView();
   });
+
   view.querySelectorAll('.browse-kp').forEach(el => {
     el.addEventListener('click', () => {
       const k = el.dataset.kp;
       const idx = f.knowledgePoints.indexOf(k);
       if (idx >= 0) f.knowledgePoints.splice(idx, 1);
       else f.knowledgePoints.push(k);
+      state.browse.page = 1;
       renderView();
     });
   });
@@ -5095,6 +5180,7 @@ function renderBrowseList(view) {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         state.search = val;
+        state.browse.page = 1;
         const cur = val;
         renderView();
         setTimeout(() => {
@@ -5104,50 +5190,85 @@ function renderBrowseList(view) {
       }, 220);
     };
     searchInput.addEventListener('compositionstart', () => { composing = true; });
-    searchInput.addEventListener('compositionend', ev => {
-      composing = false;
-      applySearch(ev.target.value);
-    });
-    searchInput.addEventListener('input', ev => {
-      if (composing) return;             // 中文拼音组合期间不触发
-      applySearch(ev.target.value);
-    });
+    searchInput.addEventListener('compositionend', e => { composing = false; applySearch(e.target.value); });
+    searchInput.addEventListener('input', e => { if (!composing) applySearch(e.target.value); });
   }
-  
   const searchClear = view.querySelector('#browse-search-clear');
   if (searchClear) searchClear.addEventListener('click', () => {
     state.search = '';
+    state.browse.page = 1;
     renderView();
   });
 
+  const sortSel = view.querySelector('#browse-sort');
+  if (sortSel) sortSel.addEventListener('change', e => {
+    state.browse.sortBy = e.target.value;
+    state.browse.page = 1;
+    persistBrowseState();
+    renderView();
+  });
+
+  /* 点击列表项 → 打开详情 */
   view.querySelectorAll('[data-open-q]').forEach(el => {
     el.addEventListener('click', () => {
-      // 用相同筛选条件重算一次顺序，保证与列表一致
-      const baseList = (typeof filtered !== 'undefined') ? filtered : pool;
-      state.browse.listIds = sortBrowseList(baseList).map(x => x.id);
-      openQuestionDetail(el.dataset.openQ);
+      const id = el.dataset.openQ;
+      if (!id) return;
+      // 用当前页的顺序作为上下题切换顺序
+      const curSorted = sorted || sortBrowseList(filtered, state.browse.sortBy);
+      state.browse.listIds = curSorted.map(x => x.id);
+      openQuestionDetail(id);
     });
   });
 
-  // 记录三张卡片的折叠状态
-  view.querySelectorAll('details[data-collapse-key]').forEach(d => {
-    d.addEventListener('toggle', () => {
-      localStorage.setItem(d.dataset.collapseKey, d.open ? '0' : '1');
+  /* 分页 */
+  const sortedList = sorted || sortBrowseList(filtered, state.browse.sortBy);
+  view.querySelectorAll('[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.page;
+      const sz = state.browse.pageSize || 20;
+      const tPages = sz === 'all' ? 1 : Math.max(1, Math.ceil(sortedList.length / sz));
+      let p = state.browse.page || 1;
+      if (action === 'first') p = 1;
+      else if (action === 'prev') p = Math.max(1, p - 1);
+      else if (action === 'next') p = Math.min(tPages, p + 1);
+      else if (action === 'last') p = tPages;
+      state.browse.page = p;
+      persistBrowseState();
+      renderView();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
 
-  // 恢复滚动位置（仅当从详情页返回时）
-  const restore = state.browse.pendingScrollRestore;
-  if (restore !== null && restore !== undefined) {
-    state.browse.pendingScrollRestore = null;
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: restore, behavior: 'instant' });
-      document.documentElement.scrollTop = restore;
-      document.body.scrollTop = restore;
+  const pageInput = view.querySelector('#page-input');
+  if (pageInput) {
+    pageInput.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const v = parseInt(e.target.value);
+      const sz = state.browse.pageSize || 20;
+      const tPages = sz === 'all' ? 1 : Math.max(1, Math.ceil(sortedList.length / sz));
+      if (Number.isInteger(v) && v >= 1 && v <= tPages) {
+        state.browse.page = v;
+        persistBrowseState();
+        renderView();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        e.target.value = state.browse.page;
+      }
+    });
+  }
+
+  const pageSizeSel = view.querySelector('#page-size');
+  if (pageSizeSel) {
+    pageSizeSel.addEventListener('change', e => {
+      const v = e.target.value;
+      state.browse.pageSize = v === 'all' ? 'all' : parseInt(v);
+      state.browse.page = 1;
+      persistBrowseState();
+      renderView();
     });
   }
 }
-
 /* ---- 打开详情 ---- */
 function openQuestionDetail(id) {
   state.browse.listScrollY = window.scrollY || document.documentElement.scrollTop || 0;
@@ -5346,7 +5467,7 @@ function bindNotesEvents(view) {
       state.mode = 'browse';
       state.prevMode = 'browse';
       state.browse.filter = { module: 'all', type: 'all', knowledgePoints: [] };
-      state.browse.listIds = sortBrowseList(questions).map(x => x.id);
+      state.browse.listIds = sortBrowseList(questions, state.browse.sortBy).map(x => x.id);
       state.browse.selectedId = id;
       state.browse.detail = { question: q, similar: [] };
       state.browse.generating = { analysis: false, similar: false };
@@ -7926,6 +8047,16 @@ document.querySelectorAll('.nav button').forEach(btn => {
           : []
       };
     }
+    if (lastBrowse.sortBy === 'createdAt' || lastBrowse.sortBy === 'wrongCount') {
+      state.browse.sortBy = lastBrowse.sortBy;
+    }
+
+    if (Number.isInteger(lastBrowse.page) && lastBrowse.page > 0) {
+      state.browse.page = lastBrowse.page;
+    }
+    if (lastBrowse.pageSize === 'all' || Number.isInteger(lastBrowse.pageSize)) {
+      state.browse.pageSize = lastBrowse.pageSize;
+    }
 
     if (lastBrowse.selectedId) {
       const q = questions.find(x => x.id === lastBrowse.selectedId);
@@ -7934,7 +8065,7 @@ document.querySelectorAll('.nav button').forEach(btn => {
         state.browse.detail = { question: q, similar: [] };
         state.browse.generating = { analysis: false, similar: false };
         const filtered = filterQuestions(state.browse.filter);
-        state.browse.listIds = sortBrowseList(filtered).map(x => x.id);
+        state.browse.listIds = sortBrowseList(filtered, state.browse.sortBy).map(x => x.id);
         state.browse.listScrollY = 0;
         state.browse.pendingScrollRestore = null;
       }
