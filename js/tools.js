@@ -454,7 +454,6 @@ function invalidateStorageCache() {
 
 /* ============ 全局粘贴 ============ */
 document.addEventListener('paste', e => {
-
   if (state.mode !== 'collect') return;
   const items = e.clipboardData && e.clipboardData.items;
   if (!items) return;
@@ -469,7 +468,8 @@ document.addEventListener('paste', e => {
   e.preventDefault();
 
   const s2 = state.collect;
-  s2.editedOcrText = '';
+  state.collect.editedOcrText = '';
+
   Promise.all(files.map(async f => {
     const dataUrl = await new Promise(res => {
       const r = new FileReader();
@@ -479,7 +479,10 @@ document.addEventListener('paste', e => {
     });
     let imageId = '';
     if (useIDB && dataUrl) {
-      try { imageId = await idbPutImage(f); } catch (e) { console.warn('图片存储失败：', e); }
+      try {
+        const thumbBlob = await generateThumbnail(f);
+        imageId = await idbPutImage(f, thumbBlob);
+      } catch (err) { console.warn('图片存储失败：', err); }
     }
     return { id: uid(), file: f, dataUrl, imageId, ocrText: '', status: 'pending', error: '' };
   })).then(items2 => {

@@ -523,6 +523,13 @@ function renderSettings(view) {
       </div>
       <div class="setting-row">
         <div class="setting-row-main">
+          <div class="setting-row-title">为旧图生成缩略图</div>
+          <div class="setting-row-desc">为已上传但缺少缩略图的图片生成缩略图，便于同步到手机端查看</div>
+        </div>
+        <button class="btn sm" id="genThumbsBtn">生成</button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-row-main">
           <div class="setting-row-title">清理 OCR 缓存</div>
           <div class="setting-row-desc">释放 PaddleOCR 模型占用的空间（约 30MB）。不影响错题库，下次识别会自动重新下载</div>
         </div>
@@ -665,6 +672,79 @@ function renderSettings(view) {
   if (elClearCache) elClearCache.addEventListener('click', async () => {
     if (!confirm('清理 OCR 缓存？\n\n错题库不受影响。下次识别时会重新下载模型（约需 15 秒）。')) return;
     await clearOcrCache();
+  });
+  
+  const elGenThumbs = view.querySelector('#genThumbsBtn');
+  if (elGenThumbs) elGenThumbs.addEventListener('click', async () => {
+    if (!useIDB) { alert('当前是 localStorage 模式，无图片数据'); return; }
+    if (!confirm('为所有旧图片生成缩略图？\n\n过程中页面可能短暂卡顿，完成后自动同步到云端。')) return;
+
+    // 弹出进度模态框
+    const overlay = document.createElement('div');
+    overlay.className = 'dup-overlay';
+    overlay.innerHTML = `
+      <div class="dup-modal" style="max-width:420px">
+        <div class="dup-head">
+          <div class="dup-title">📐 正在生成缩略图</div>
+          <div class="dup-sub" id="thumbProgressText">准备中…</div>
+        </div>
+        <div style="padding:0 22px 22px">
+          <div class="progress-bar" style="height:8px">
+            <div class="progress-fill" id="thumbProgressBar" style="width:0%"></div>
+          </div>
+          <div style="margin-top:14px;font-size:12.5px;color:var(--text-3);line-height:1.7" id="thumbStats">
+            统计中…
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const textEl = overlay.querySelector('#thumbProgressText');
+    const barEl = overlay.querySelector('#thumbProgressBar');
+    const statsEl = overlay.querySelector('#thumbStats');
+
+    try {
+      const result = await generateMissingThumbnails((info) => {
+        if (info.phase === 'start') {
+          if (info.total === 0) {
+            textEl.textContent = '没有需要处理的图片';
+            statsEl.innerHTML = '所有图片都已有缩略图。';
+            barEl.style.width = '100%';
+          } else {
+            textEl.textContent = `共 ${info.total} 张待处理`;
+            barEl.style.width = '0%';
+          }
+        } else if (info.phase === 'progress') {
+          const pct = Math.round((info.done + info.failed) / info.total * 100);
+          barEl.style.width = pct + '%';
+          textEl.textContent = `处理中… ${info.current} / ${info.total}`;
+          statsEl.innerHTML = `✓ 成功 <b>${info.done}</b> · ✗ 失败 <b>${info.failed}</b>`;
+        } else if (info.phase === 'done') {
+          barEl.style.width = '100%';
+          textEl.textContent = '处理完成';
+        }
+      });
+
+      // 完成后 2 秒关闭
+      setTimeout(() => {
+        overlay.remove();
+        if (result.total === 0) {
+          showToast('所有图片都已有缩略图');
+        } else {
+          showToast(`已生成 ${result.done} 张缩略图${result.failed ? '（' + result.failed + ' 张失败）' : ''}`);
+        }
+        // 如果有成功的，触发同步
+        if (result.done > 0 && getGistId() && getGistToken()) {
+          setTimeout(() => {
+            pushToGist().catch(() => {});
+          }, 500);
+        }
+      }, 1500);
+    } catch (e) {
+      overlay.remove();
+      alert('生成失败：' + e.message);
+    }
   });
 
   const importFile = view.querySelector('#importFile');
@@ -2490,22 +2570,24 @@ function renderBrowseDetail(view) {
     if (text) sendChatMessage(q, text);
   });
 
-    /* 加载详情页图片 */
+  /* 加载详情页图片 */
   if ((q.imageIds || []).length) {
     setTimeout(async () => {
       const wrap = document.getElementById('detail-images-wrap');
       if (!wrap) return;
       wrap.innerHTML = '';
       for (const id of q.imageIds) {
-        const url = await loadImageUrl(id);
-        if (!url) continue;
-        const img = document.createElement('img');
-        img.src = url;
-        img.className = 'detail-image';
-        img.dataset.imageId = id;
-        img.alt = '题目图片';
-        img.addEventListener('click', () => openImageLightbox(url));
-        wrap.appendChild(img);
+        const info = await loadImageInfo(id);
+        if (!info) continue;
+        const box = document.createElement('div');
+        box.style.cssText = 'position:relative;display:inline-block;flex:0 0 auto';
+        box.innerHTML = `
+          <img src="${info.url}" class="detail-image" alt="题目图片">
+          ${info.isThumb ? `<span class="thumb-badge" title="这是从其他设备同步过来的缩略图">📱 缩略图</span>` : ''}
+        `;
+        const img = box.querySelector('img');
+        img.addEventListener('click', () => openImageLightbox(info.url));
+        wrap.appendChild(box);
       }
     }, 0);
   }

@@ -423,11 +423,11 @@ function bindCollectEvents() {
 
   const handleFiles = async (files) => {
     const s2 = state.collect;
-    s2.editedOcrText = '';
     const arr = Array.from(files).filter(f => f && f.type.startsWith('image/'));
     if (!arr.length) return;
 
-    // 先读 dataURL + 存 IDB
+    state.collect.editedOcrText = '';
+
     const items = await Promise.all(arr.map(async f => {
       const dataUrl = await new Promise(res => {
         const r = new FileReader();
@@ -437,7 +437,10 @@ function bindCollectEvents() {
       });
       let imageId = '';
       if (useIDB && dataUrl) {
-        try { imageId = await idbPutImage(f); } catch (e) { console.warn('图片存储失败：', e); }
+        try {
+          const thumbBlob = await generateThumbnail(f);
+          imageId = await idbPutImage(f, thumbBlob);
+        } catch (e) { console.warn('图片存储失败：', e); }
       }
       return { id: uid(), file: f, dataUrl, imageId, ocrText: '', status: 'pending', error: '' };
     }));

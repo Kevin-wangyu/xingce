@@ -7,15 +7,35 @@ let useIDB = true;
 function openDB() {
   return new Promise(resolve => {
     if (!('indexedDB' in window)) { useIDB = false; return resolve(); }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = e => {
-      const d = e.target.result;
-      if (!d.objectStoreNames.contains('questions')) d.createObjectStore('questions', { keyPath: 'id' });
-      if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'key' });
-      if (!d.objectStoreNames.contains('images')) d.createObjectStore('images', { keyPath: 'id' });
+
+    const openAt = (version) => {
+      const req = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
+      req.onupgradeneeded = e => {
+        const d = e.target.result;
+        if (!d.objectStoreNames.contains('questions')) d.createObjectStore('questions', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'key' });
+        if (!d.objectStoreNames.contains('images')) d.createObjectStore('images', { keyPath: 'id' });
+      };
+      req.onsuccess = e => { db = e.target.result; resolve(); };
+      req.onerror = e => {
+        const err = e.target.error;
+        console.warn('[IDB] 打开失败：', err && err.name, err && err.message);
+        useIDB = false;
+        resolve();
+      };
     };
-    req.onsuccess = e => { db = e.target.result; resolve(); };
-    req.onerror = () => { useIDB = false; resolve(); };
+
+    // 优先查询当前实际版本，避免用旧版本打开新 DB
+    if (indexedDB.databases) {
+      indexedDB.databases().then(list => {
+        const cur = list.find(d => d.name === DB_NAME);
+        const v = (cur && cur.version) ? Math.max(cur.version, DB_VERSION) : DB_VERSION;
+        openAt(v);
+      }).catch(() => openAt(DB_VERSION));
+    } else {
+      // 浏览器不支持 databases API（老版本 Firefox），退回原逻辑
+      openAt(DB_VERSION);
+    }
   });
 }
 const idbGetAll = s => new Promise((res, rej) => { const r = db.transaction(s,'readonly').objectStore(s).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); });
@@ -41,11 +61,124 @@ let deletedIds = [];
 let lastSyncedAt = 0;
 let pushTimer = null;
 let syncing = false;
+/* ============ 图片处理 ============ */
+const THUMB_MAX_WIDTH = 320;
+const THUMB_QUALITY = 0.72;
 
-function idbPutImage(blob) {
+/* 生成缩略图（返回 Blob） */
+async function generateThumbnail(file) {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const ratio = img.width > THUMB_MAX_WIDTH ? THUMB_MAX_WIDTH / img.width : 1;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(img.width * ratio));
+            canvas.height = Math.max(1, Math.round(img.height * ratio));
+            const ctx = canvas.getContext('2d');
+            // 白底填充（防止透明 PNG 变黑）
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => resolve(blob), 'image/jpeg', THUMB_QUALITY);
+          } catch (err) {
+            console.warn('[缩略图] canvas 失败：', err);
+            resolve(null);
+          }
+        };
+        img.onerror = () => resolve(null);
+        img.src = e.target.result;
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+/* ============ 为旧图批量生成缩略图 ============ */
+async function generateMissingThumbnails(onProgress) {
+  if (!useIDB) {
+    return { total: 0, done: 0, failed: 0, skipped: 0 };
+  }
+
+  // 读取所有图片记录
+  let allImages = [];
+  try {
+    allImages = await new Promise((resolve, reject) => {
+      const r = db.transaction('images', 'readonly').objectStore('images').getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    });
+  } catch (e) {
+    throw new Error('读取图片失败：' + e.message);
+  }
+
+  // 筛选需要处理的（有 blob 但无 thumbnail）
+  const needWork = allImages.filter(rec => rec.blob && !rec.thumbnail);
+  const total = needWork.length;
+  let done = 0, failed = 0, skipped = 0;
+
+  if (onProgress) onProgress({ total, done, failed, skipped, phase: 'start' });
+
+  for (let i = 0; i < needWork.length; i++) {
+    const rec = needWork[i];
+    try {
+      // 用 blob 生成缩略图
+      const thumbBlob = await generateThumbnail(rec.blob);
+      if (!thumbBlob) {
+        failed++;
+      } else {
+        rec.thumbnail = thumbBlob;
+        await new Promise((resolve, reject) => {
+          const r = db.transaction('images', 'readwrite').objectStore('images').put(rec);
+          r.onsuccess = () => resolve();
+          r.onerror = () => reject(r.error);
+        });
+        done++;
+      }
+    } catch (e) {
+      console.warn('[缩略图] 处理失败：', rec.id, e);
+      failed++;
+    }
+    if (onProgress) onProgress({ total, done, failed, skipped, phase: 'progress', current: i + 1 });
+    // 让出主线程，避免卡死
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  if (onProgress) onProgress({ total, done, failed, skipped, phase: 'done' });
+  return { total, done, failed, skipped };
+}
+/* Blob → base64 dataURL */
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/* base64 dataURL → Blob */
+function dataURLToBlob(dataURL) {
+  const parts = String(dataURL || '').split(',');
+  if (parts.length !== 2) return null;
+  const m = parts[0].match(/:(.*?);/);
+  const mime = m ? m[1] : 'image/jpeg';
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+function idbPutImage(blob, thumbnailBlob) {
   return new Promise((resolve, reject) => {
     const id = 'img_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    const r = db.transaction('images', 'readwrite').objectStore('images').put({ id, blob, createdAt: Date.now() });
+    const rec = { id, blob, createdAt: Date.now() };
+    if (thumbnailBlob) rec.thumbnail = thumbnailBlob;
+    const r = db.transaction('images', 'readwrite').objectStore('images').put(rec);
     r.onsuccess = () => resolve(id);
     r.onerror = () => reject(r.error);
   });
@@ -73,12 +206,41 @@ async function loadImageUrl(imageId) {
   if (_imageUrlCache.has(imageId)) return _imageUrlCache.get(imageId);
   try {
     const rec = await idbGetImage(imageId);
-    if (!rec || !rec.blob) return null;
-    const url = URL.createObjectURL(rec.blob);
+    if (!rec) return null;
+    // 优先原图，没有则用缩略图
+    const blob = rec.blob || rec.thumbnail;
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
     _imageUrlCache.set(imageId, url);
     return url;
   } catch (e) {
     console.warn('[图片] 加载失败：', imageId, e);
+    return null;
+  }
+}
+
+/* 返回图片信息 + 是否缩略图 */
+async function loadImageInfo(imageId) {
+  if (!imageId) return null;
+  try {
+    const rec = await idbGetImage(imageId);
+    if (!rec) return null;
+    if (rec.blob) {
+      // 原图优先
+      if (_imageUrlCache.has(imageId)) return { url: _imageUrlCache.get(imageId), isThumb: false };
+      const url = URL.createObjectURL(rec.blob);
+      _imageUrlCache.set(imageId, url);
+      return { url, isThumb: false };
+    }
+    if (rec.thumbnail) {
+      const key = imageId + '_thumb';
+      if (_imageUrlCache.has(key)) return { url: _imageUrlCache.get(key), isThumb: true };
+      const url = URL.createObjectURL(rec.thumbnail);
+      _imageUrlCache.set(key, url);
+      return { url, isThumb: true };
+    }
+    return null;
+  } catch (e) {
     return null;
   }
 }

@@ -48,12 +48,28 @@ async function pushToGist() {
   if (syncing) return;
   syncing = true;
   try {
+    // 收集所有被题目引用的图片 ID
+    const allImageIds = new Set();
+    questions.forEach(q => (q.imageIds || []).forEach(i => allImageIds.add(i)));
+
+    // 逐个读取缩略图，转 base64
+    const thumbnails = {};
+    for (const imgId of allImageIds) {
+      try {
+        const rec = await idbGetImage(imgId);
+        if (rec && rec.thumbnail) {
+          thumbnails[imgId] = await blobToDataURL(rec.thumbnail);
+        }
+      } catch (e) { console.warn('[同步] 读取缩略图失败：', imgId, e); }
+    }
+
     const payload = {
       files: {
         [GIST_FILENAME]: {
           content: JSON.stringify({
             questions,
             deletedIds,
+            thumbnails,   // ← 新增
             lastSyncedAt: Date.now()
           }, null, 2)
         }
@@ -69,7 +85,7 @@ async function pushToGist() {
     });
     if (!res.ok) throw new Error('GitHub 返回 ' + res.status);
     lastSyncedAt = Date.now();
-    console.log('[同步] PUSH 完成');
+    console.log(`[同步] PUSH 完成（含 ${Object.keys(thumbnails).length} 张缩略图）`);
   } catch (e) {
     console.warn('[同步] PUSH 失败：', e.message);
     throw e;
@@ -121,6 +137,30 @@ async function mergeRemote(remote) {
   const beforeLen = questions.length;
   questions = questions.filter(q => !deletedIds.includes(q.id));
   const removed = beforeLen - questions.length;
+
+    /* ============ 合并缩略图 ============ */
+  const remoteThumbs = remote.thumbnails || {};
+  let thumbAdded = 0;
+  for (const [imgId, dataURL] of Object.entries(remoteThumbs)) {
+    try {
+      // 如果本地已有原图，跳过（保留原图）
+      const localRec = await idbGetImage(imgId);
+      if (localRec && localRec.blob) continue;
+      // 没有原图 → 把缩略图存进去（作为 blob 的替代）
+      const thumbBlob = dataURLToBlob(dataURL);
+      if (!thumbBlob) continue;
+      const rec = { id: imgId, thumbnail: thumbBlob, createdAt: Date.now() };
+      await new Promise((resolve, reject) => {
+        const r = db.transaction('images', 'readwrite').objectStore('images').put(rec);
+        r.onsuccess = () => resolve();
+        r.onerror = () => reject(r.error);
+      });
+      thumbAdded++;
+    } catch (e) {
+      console.warn('[同步] 合并缩略图失败：', imgId, e);
+    }
+  }
+  if (thumbAdded) console.log(`[同步] 新增 ${thumbAdded} 张缩略图`);
 
   await setMeta('deletedIds', deletedIds);
   scheduleFlush();
