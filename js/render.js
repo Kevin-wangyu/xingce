@@ -560,54 +560,97 @@ function renderSettings(view) {
         </div>
         <button class="btn sm danger" id="resetBtn">清空</button>
       </div>
-
-
-
     </div>
 
     <div class="card">
       <div class="card-head">
         <div>
-          <div class="card-title">账号</div>
-          <div class="card-sub">跨设备同步</div>
+          <div class="card-title">云同步</div>
+          <div class="card-sub">通过 GitHub Gist 在多设备间同步错题库</div>
         </div>
-            <div class="card">
-              <div class="card-head">
-                <div>
-                  <div class="card-title">云同步</div>
-                  <div class="card-sub">通过 GitHub Gist 在多设备间同步错题库</div>
-                </div>
-                <span class="tag ${getGistId() && getGistToken() ? 'success' : 'gray'}">
-                  ${getGistId() && getGistToken() ? '已配置' : '未配置'}
-                </span>
-              </div>
-
-              <label style="margin-top:0">Gist ID</label>
-              <input id="gist-id" class="input" placeholder="如 a1b2c3d4e5f6..." value="${esc(getGistId())}">
-
-              <label>Personal Access Token</label>
-              <input id="gist-token" class="input" type="password" placeholder="ghp_..." value="${esc(getGistToken())}">
-              <div style="font-size:12px;color:var(--text-3);margin-top:8px;line-height:1.6">
-                前往 <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--primary)">github.com/settings/tokens</a> 生成 classic token，只需勾选 <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace">gist</code> 权限。
-                Gist 建议创建 secret 类型。Token 只保存在本机浏览器。
-              </div>
-
-              <div class="actions">
-                <button class="btn primary" id="gist-save">保存配置</button>
-                ${getGistId() && getGistToken() ? `
-                  <button class="btn" id="gist-sync-now">立即同步</button>
-                  <button class="btn ghost" id="gist-clear">清除配置</button>
-                ` : ''}
-              </div>
-              ${lastSyncedAt ? `<div style="font-size:12px;color:var(--text-3);margin-top:12px;display:flex;align-items:center;gap:6px">
-                <span style="width:6px;height:6px;border-radius:50%;background:var(--success)"></span>
-                上次同步：${new Date(lastSyncedAt).toLocaleString('zh-CN')}
-              </div>` : ''}
-            </div>
+        <span class="tag ${getGistId() && getGistToken() ? 'success' : 'gray'}">
+          ${getGistId() && getGistToken() ? '已配置' : '未配置'}
+        </span>
       </div>
-      <p style="font-size:13px;color:var(--text-3);line-height:1.7">
-        登录账号后，可将错题库云端备份，在手机、平板、电脑之间同步。开发中，敬请期待。
-      </p>
+
+      <!-- ============ Gist 配置 ============ -->
+      <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:10px">
+        ① Gist 配置
+      </div>
+
+      <label style="margin-top:0;font-size:12.5px">Gist ID</label>
+      <input id="gist-id" class="input" placeholder="如 a1b2c3d4e5f6..." value="${esc(getGistId())}">
+
+      <label style="font-size:12.5px">Personal Access Token</label>
+      <input id="gist-token" class="input" type="password" placeholder="ghp_..." value="${esc(getGistToken())}">
+      <div style="font-size:11.5px;color:var(--text-3);margin-top:8px;line-height:1.7">
+        前往 <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--primary)">github.com/settings/tokens</a>
+        生成 classic token，只需勾选 <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace">gist</code> 权限。
+        Gist 建议创建 secret 类型。Token 只保存在本机浏览器。
+      </div>
+
+      <div class="actions" style="margin-top:12px">
+        <button class="btn primary sm" id="gist-save">保存配置</button>
+      </div>
+
+      <!-- ============ 图床配置 ============ -->
+      <div style="margin-top:22px;padding-top:18px;border-top:1px dashed var(--border)">
+        <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:10px">
+          ② 图片同步（图床）
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+          <div style="flex:1;min-width:180px">
+            <label style="margin-top:0;font-size:12.5px">首选图床</label>
+            <select id="imageHostSelect" class="input">
+              <option value="imgbb" ${currentImageHost === 'imgbb' ? 'selected' : ''}>ImgBB</option>
+              <option value="beeimg" ${currentImageHost === 'beeimg' ? 'selected' : ''}>蜜蜂图床</option>
+            </select>
+          </div>
+        </div>
+
+        <label style="font-size:12.5px">ImgBB API Key</label>
+        <input id="imgbbKeyInput" class="input" type="password" placeholder="在 api.imgbb.com 获取" value="${esc(getImgHostKey('imgbb'))}">
+
+        <label style="font-size:12.5px">蜜蜂图床 API Key（可选）</label>
+        <input id="beeimgKeyInput" class="input" type="password" placeholder="在 beeimg.com/api/newkey 获取" value="${esc(getImgHostKey('beeimg'))}">
+
+        <div style="font-size:11.5px;color:var(--text-3);margin-top:8px;line-height:1.7">
+          💡 图片上传到图床，Gist 只存 URL。ImgBB 未配置或上传失败时，自动切换蜜蜂图床。
+        </div>
+
+        <div class="actions" style="margin-top:12px">
+          <button class="btn primary sm" id="saveImgHostBtn">保存图床配置</button>
+          <button class="btn sm" id="cleanGistThumbsBtn" title="从 Gist 中移除旧版 base64 缩略图字段">
+            清理 Gist 旧缩略图
+          </button>
+        </div>
+      </div>
+
+      <!-- ============ 同步操作 ============ -->
+      <div style="margin-top:22px;padding-top:18px;border-top:1px dashed var(--border)">
+        <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:10px">
+          ③ 同步操作
+        </div>
+
+        ${lastSyncedAt ? `
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:12px;display:flex;align-items:center;gap:6px">
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--success)"></span>
+            上次同步：${new Date(lastSyncedAt).toLocaleString('zh-CN')}
+          </div>
+        ` : `
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:12px">尚未同步过</div>
+        `}
+
+        <div class="actions" style="margin-top:0">
+          ${getGistId() && getGistToken() ? `
+            <button class="btn primary" id="gist-sync-now">立即同步</button>
+            <button class="btn ghost" id="gist-clear">清除配置</button>
+          ` : `
+            <div style="font-size:12.5px;color:var(--text-3);padding:6px 0">保存上方 Gist 配置后即可开始同步</div>
+          `}
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -918,6 +961,7 @@ function renderSettings(view) {
     });
   }
 
+
   const elReset = view.querySelector('#resetBtn');
   if (elReset) elReset.addEventListener('click', async () => {
     if (!questions.length) { alert('当前没有数据'); return; }
@@ -954,7 +998,41 @@ function renderSettings(view) {
     renderView();
   });
 
-    /* ============ 对话角色配置 ============ */
+  /* ============ 图床配置 ============ */
+  const hostSel = view.querySelector('#imageHostSelect');
+  if (hostSel) hostSel.addEventListener('change', e => {
+    currentImageHost = e.target.value;
+    localStorage.setItem('xc_image_host', currentImageHost);
+    showToast('已切换首选图床');
+  });
+
+  const saveHostBtn = view.querySelector('#saveImgHostBtn');
+  if (saveHostBtn) saveHostBtn.addEventListener('click', () => {
+    const imgbbKey = view.querySelector('#imgbbKeyInput').value.trim();
+    const beeimgKey = view.querySelector('#beeimgKeyInput').value.trim();
+    setImgHostKey('imgbb', imgbbKey);
+    setImgHostKey('beeimg', beeimgKey);
+    showToast('图床配置已保存');
+  });
+
+  const cleanGistBtn = view.querySelector('#cleanGistThumbsBtn');
+  if (cleanGistBtn) cleanGistBtn.addEventListener('click', async () => {
+    if (!getGistId() || !getGistToken()) { alert('请先配置 Gist'); return; }
+    if (!confirm('从 Gist 中删除旧缩略图字段？\n\n错题数据不受影响，仅清理旧版本的 base64 缩略图。')) return;
+    cleanGistBtn.disabled = true;
+    cleanGistBtn.innerHTML = '<span class="spinner"></span> 清理中…';
+    try {
+      await cleanGistThumbnails();
+    } catch (e) {
+      alert('清理失败：' + e.message);
+    } finally {
+      cleanGistBtn.disabled = false;
+      cleanGistBtn.textContent = '清理 Gist 旧缩略图';
+      renderView();
+    }
+  });
+
+  /* ============ 对话角色配置 ============ */
   const roleState = {
     me: { ...getChatRoles().me },
     ai: { ...getChatRoles().ai }

@@ -93,8 +93,8 @@ let lastSyncedAt = 0;
 let pushTimer = null;
 let syncing = false;
 /* ============ 图片处理 ============ */
-const THUMB_MAX_WIDTH = 640;
-const THUMB_QUALITY = 0.9;
+const THUMB_MAX_WIDTH = 320;
+const THUMB_QUALITY = 0.72;
 
 /* 生成缩略图（返回 Blob） */
 async function generateThumbnail(file) {
@@ -235,20 +235,28 @@ function idbDeleteImage(id) {
 /* 异步加载图片 objectURL（带缓存） */
 async function loadImageUrl(imageId) {
   if (!imageId) return null;
-  if (_imageUrlCache.has(imageId)) return _imageUrlCache.get(imageId);
+
+  // 1. 优先使用本地原图（Blob）
   try {
     const rec = await idbGetImage(imageId);
-    if (!rec) return null;
-    // 优先原图，没有则用缩略图
-    const blob = rec.blob || rec.thumbnail;
-    if (!blob) return null;
-    const url = URL.createObjectURL(blob);
-    _imageUrlCache.set(imageId, url);
-    return url;
-  } catch (e) {
-    console.warn('[图片] 加载失败：', imageId, e);
-    return null;
-  }
+    if (rec && rec.blob) {
+      if (!_imageUrlCache.has(imageId)) {
+        const url = URL.createObjectURL(rec.blob);
+        _imageUrlCache.set(imageId, url);
+      }
+      return _imageUrlCache.get(imageId);
+    }
+  } catch (e) {}
+
+  // 2. 本地无原图，尝试从图床 URL 加载
+  try {
+    const urlMap = await getMeta('imageUrlMap') || {};
+    if (urlMap[imageId]) {
+      return urlMap[imageId]; // 直接返回图床 URL
+    }
+  } catch (e) {}
+
+  return null;
 }
 
 /* 返回图片信息 + 是否缩略图 */
@@ -256,20 +264,25 @@ async function loadImageInfo(imageId) {
   if (!imageId) return null;
   try {
     const rec = await idbGetImage(imageId);
-    if (!rec) return null;
-    if (rec.blob) {
-      // 原图优先
-      if (_imageUrlCache.has(imageId)) return { url: _imageUrlCache.get(imageId), isThumb: false };
-      const url = URL.createObjectURL(rec.blob);
-      _imageUrlCache.set(imageId, url);
-      return { url, isThumb: false };
+    if (rec) {
+      if (rec.blob) {
+        if (_imageUrlCache.has(imageId)) return { url: _imageUrlCache.get(imageId), isThumb: false };
+        const url = URL.createObjectURL(rec.blob);
+        _imageUrlCache.set(imageId, url);
+        return { url, isThumb: false };
+      }
+      if (rec.thumbnail) {
+        const key = imageId + '_thumb';
+        if (_imageUrlCache.has(key)) return { url: _imageUrlCache.get(key), isThumb: true };
+        const url = URL.createObjectURL(rec.thumbnail);
+        _imageUrlCache.set(key, url);
+        return { url, isThumb: true };
+      }
     }
-    if (rec.thumbnail) {
-      const key = imageId + '_thumb';
-      if (_imageUrlCache.has(key)) return { url: _imageUrlCache.get(key), isThumb: true };
-      const url = URL.createObjectURL(rec.thumbnail);
-      _imageUrlCache.set(key, url);
-      return { url, isThumb: true };
+    // 本地无 → 从图床 URL 加载
+    const urlMap = await getMeta('imageUrlMap') || {};
+    if (urlMap[imageId]) {
+      return { url: urlMap[imageId], isThumb: false, fromHost: true };
     }
     return null;
   } catch (e) {
