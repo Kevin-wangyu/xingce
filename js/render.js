@@ -393,7 +393,53 @@ function renderParsedCard(p, qi) {
   `;
 }
 
+/* 收集设置页所有输入框的当前值到 localStorage（避免 renderView 丢数据） */
+function collectAllSettingsFromDOM(view) {
+  if (!view) view = document.getElementById('view');
+  if (!view) return;
 
+  const getVal = (sel) => {
+    const el = view.querySelector(sel);
+    return el ? el.value : null;
+  };
+
+  // AI 设置
+  const aiKey = getVal('#apiKeyInput');
+  if (aiKey !== null) setApiKey(aiKey.trim());
+  const modelSel = view.querySelector('#aiModelSelect');
+  if (modelSel) setAiModel(modelSel.value);
+  const thinkChk = view.querySelector('#defaultThinkingChk');
+  if (thinkChk) setDefaultThinking(thinkChk.checked);
+
+  // Gist
+  const gistId = getVal('#gist-id');
+  const gistToken = getVal('#gist-token');
+  if (gistId !== null && gistToken !== null) {
+    setGistConfig(gistId.trim(), gistToken.trim());
+  }
+
+  // 图床
+  const hostSel = view.querySelector('#imageHostSelect');
+  if (hostSel) {
+    currentImageHost = hostSel.value;
+    localStorage.setItem('xc_image_host', currentImageHost);
+  }
+  const imgbb = getVal('#imgbbKeyInput');
+  if (imgbb !== null) setImgHostKey('imgbb', imgbb.trim());
+  const beeimg = getVal('#beeimgKeyInput');
+  if (beeimg !== null) setImgHostKey('beeimg', beeimg.trim());
+
+  // 对话角色（名字，头像由 picker 自己同步）
+  const meName = getVal('#role-me-name');
+  const aiName = getVal('#role-ai-name');
+  if (meName !== null || aiName !== null) {
+    const roles = getChatRoles();
+    setChatRoles(
+      { name: (meName || roles.me.name).trim() || '我', avatar: roles.me.avatar },
+      { name: (aiName || roles.ai.name).trim() || 'AI', avatar: roles.ai.avatar }
+    );
+  }
+}
 /* ============ 视图：设置 ============ */
 function renderSettings(view) {
   const hasKey = !!getApiKey();
@@ -483,7 +529,7 @@ function renderSettings(view) {
             </div>
             <div class="actions" style="margin-top:10px;gap:6px">
               <button class="btn primary sm" id="gist-save">保存</button>
-              ${getGistId() && getGistToken() ? `
+              ${getGistId() || getGistToken() ? `
                 <button class="btn ghost sm" id="gist-clear">清除</button>
               ` : ''}
             </div>
@@ -501,6 +547,9 @@ function renderSettings(view) {
             <input id="beeimgKeyInput" class="input" type="password" style="font-size:13px" placeholder="蜜蜂图床 Key（可选）" value="${esc(getImgHostKey('beeimg'))}">
             <div class="actions" style="margin-top:10px;gap:6px">
               <button class="btn primary sm" id="saveImgHostBtn">保存</button>
+              <div class="card-sub">
+                未配置图床apikey无法同步图片
+              </div>
             </div>
           </div>
         </div>
@@ -696,8 +745,14 @@ function renderSettings(view) {
     showToast(e.target.checked ? '已默认开启深度思考' : '已关闭默认深度思考');
   });
 
-  const elSaveKey = view.querySelector('#saveKeyBtn');
+  const saveKeyBtn = view.querySelector('#saveKeyBtn');
+  if (saveKeyBtn) saveKeyBtn.addEventListener('click', () => {
+    collectAllSettingsFromDOM(view);
+    showToast('已保存');
+    renderView();
+  });
   const elApiKey = view.querySelector('#apiKeyInput');
+  const elSaveKey = view.querySelector('#saveKeyBtn');
   if (elSaveKey && elApiKey) {
     elSaveKey.addEventListener('click', () => {
       const v = elApiKey.value.trim();
@@ -710,6 +765,7 @@ function renderSettings(view) {
   const clrKey = view.querySelector('#clearKeyBtn');
   if (clrKey) clrKey.addEventListener('click', () => {
     if (!confirm('清除 API Key？')) return;
+    collectAllSettingsFromDOM(view);
     setApiKey('');
     showToast('已清除');
     renderView();
@@ -858,15 +914,11 @@ function renderSettings(view) {
     renderView();
   });
 
-    const gistSave = view.querySelector('#gist-save');
-  if (gistSave) gistSave.addEventListener('click', async () => {
-    const id = view.querySelector('#gist-id').value.trim();
-    const token = view.querySelector('#gist-token').value.trim();
-    if (!id || !token) { alert('Gist ID 和 Token 都要填写'); return; }
-    setGistConfig(id, token);
-    gistSave.disabled = true;
-    gistSave.innerHTML = '<span class="spinner"></span> 同步中…';
-    await syncNow();
+  const gistSave = view.querySelector('#gist-save');
+  if (gistSave) gistSave.addEventListener('click', () => {
+    collectAllSettingsFromDOM(view);
+    showToast('Gist 配置已保存');
+    renderView();
   });
 
   const gistSync = view.querySelector('#gist-sync-now');
@@ -878,9 +930,11 @@ function renderSettings(view) {
 
   const gistClear = view.querySelector('#gist-clear');
   if (gistClear) gistClear.addEventListener('click', () => {
-    if (!confirm('清除同步配置？本地数据不受影响。')) return;
+    if (!confirm('清除 Gist 同步配置？本地数据不受影响。')) return;
+    collectAllSettingsFromDOM(view);
     localStorage.removeItem(K_GIST_ID);
     localStorage.removeItem(K_GIST_TOKEN);
+    showToast('已清除 Gist 配置');
     renderView();
   });
 
@@ -894,11 +948,9 @@ function renderSettings(view) {
 
   const saveHostBtn = view.querySelector('#saveImgHostBtn');
   if (saveHostBtn) saveHostBtn.addEventListener('click', () => {
-    const imgbbKey = view.querySelector('#imgbbKeyInput').value.trim();
-    const beeimgKey = view.querySelector('#beeimgKeyInput').value.trim();
-    setImgHostKey('imgbb', imgbbKey);
-    setImgHostKey('beeimg', beeimgKey);
+    collectAllSettingsFromDOM(view);
     showToast('图床配置已保存');
+    renderView();
   });
 
   /* ============ 对话角色配置 ============ */
@@ -962,14 +1014,9 @@ function renderSettings(view) {
   // 保存
   const roleSave = view.querySelector('#role-save');
   if (roleSave) roleSave.addEventListener('click', () => {
-    const meName = (view.querySelector('#role-me-name').value || '').trim() || '我';
-    const aiName = (view.querySelector('#role-ai-name').value || '').trim() || 'AI';
-    if (meName.length > 12 || aiName.length > 12) { alert('名字最长 12 个字'); return; }
-    setChatRoles(
-      { name: meName, avatar: roleState.me.avatar },
-      { name: aiName, avatar: roleState.ai.avatar }
-    );
-    showToast('已保存');
+    collectAllSettingsFromDOM(view);
+    showToast('角色设置已保存');
+    renderView();
   });
 
   const elResetStats = view.querySelector('#resetStatsBtn');
