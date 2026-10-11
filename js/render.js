@@ -537,6 +537,13 @@ function renderSettings(view) {
       </div>
       <div class="setting-row">
         <div class="setting-row-main">
+          <div class="setting-row-title">修复数据库</div>
+          <div class="setting-row-desc">清除 Service Worker 缓存并强制重新加载页面。数据不丢，用于解决移动端加载旧版或 IDB 打开失败</div>
+        </div>
+        <button class="btn sm danger" id="fixDbBtn">修复</button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-row-main">
           <div class="setting-row-title">清空所有数据</div>
           <div class="setting-row-desc">删除全部错题与设置，不可恢复</div>
         </div>
@@ -600,6 +607,10 @@ function renderSettings(view) {
         </div>
       </div>
       <div class="about-text">
+        <p style="font-size:12px;color:var(--text-3)">
+          版本：<code>2026-10-11</code> · 环境：<code>${location.protocol}</code> · 
+          IndexedDB：<code>${useIDB ? '可用 v' + (db?.version || '?') : '不可用'}</code>
+        </p>
         <p>行测错题本是一个纯浏览器端应用，所有数据保存在本机 <code>IndexedDB</code>，设置Gist可即时同步和备份数据。</p>
         <div class="about-features">
           <div class="about-feature">
@@ -744,6 +755,29 @@ function renderSettings(view) {
     } catch (e) {
       overlay.remove();
       alert('生成失败：' + e.message);
+    }
+  });
+
+  const elFixDb = view.querySelector('#fixDbBtn');
+  if (elFixDb) elFixDb.addEventListener('click', async () => {
+    if (!confirm('将清除 Service Worker 缓存并重新加载页面。\n\n错题库不受影响（在 IndexedDB 里）。\n\n确定继续？')) return;
+    try {
+      // 注销所有 Service Worker
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      // 清缓存
+      if ('caches' in window) {
+        const names = await caches.keys();
+        await Promise.all(names.map(n => caches.delete(n)));
+      }
+      // 强制重新加载（带 cache-buster）
+      const url = new URL(location.href);
+      url.searchParams.set('_t', Date.now());
+      location.replace(url.toString());
+    } catch (e) {
+      alert('修复失败：' + e.message);
     }
   });
 

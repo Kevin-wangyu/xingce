@@ -414,16 +414,23 @@ async function updateStatusChip() {
 
   if (!useIDB) {
     chip.className = 'status-chip gray';
-    chip.innerHTML = '<span class="dot"></span><span>localStorage 模式</span>';
+    chip.title = window._idbError || 'IDB 不可用';
+    chip.innerHTML = `<span class="dot"></span><span>localStorage 模式${window._idbError ? ' ⚠️' : ''}</span>`;
+    chip.style.cursor = 'pointer';
+    chip.onclick = () => {
+      if (window._idbError) {
+        alert('IndexedDB 打开失败：\n\n' + window._idbError + '\n\n尝试：\n1. 完全关闭浏览器再打开\n2. 或点设置页的"修复数据库"');
+      }
+    };
     return;
   }
 
   chip.className = 'status-chip';
+  chip.onclick = null;
+  chip.style.cursor = '';
 
-  // 5 分钟内的缓存直接复用，不重新计算（避免闪烁）
   const cacheFresh = _cachedStorage.ts && (Date.now() - _cachedStorage.ts < 5 * 60 * 1000);
   if (!cacheFresh) {
-    // 首次或缓存过期 → 先显示占位，避免闪成"计算中"
     if (!_cachedStorage.ts) {
       chip.innerHTML = `<span class="dot"></span><span>IDB ${questions.length}题</span>`;
     }

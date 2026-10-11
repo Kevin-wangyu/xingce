@@ -6,38 +6,69 @@ let useIDB = true;
 
 function openDB() {
   return new Promise(resolve => {
-    if (!('indexedDB' in window)) { useIDB = false; return resolve(); }
+    if (!('indexedDB' in window)) {
+      useIDB = false;
+      window._idbError = '浏览器不支持 IndexedDB';
+      return resolve();
+    }
 
-    const openAt = (version) => {
-      const req = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
+    window._idbError = null;
+
+    const tryOpen = (version, onFail) => {
+      let req;
+      try {
+        req = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
+      } catch (e) {
+        window._idbError = 'open 异常：' + e.message;
+        if (onFail) onFail(); else { useIDB = false; resolve(); }
+        return;
+      }
       req.onupgradeneeded = e => {
         const d = e.target.result;
         if (!d.objectStoreNames.contains('questions')) d.createObjectStore('questions', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'key' });
         if (!d.objectStoreNames.contains('images')) d.createObjectStore('images', { keyPath: 'id' });
       };
-      req.onsuccess = e => { db = e.target.result; resolve(); };
+      req.onsuccess = e => {
+        db = e.target.result;
+        useIDB = true;
+        window._idbError = null;
+        console.log(`[IDB] 打开成功，版本 ${db.version}`);
+        resolve();
+      };
       req.onerror = e => {
         const err = e.target.error;
-        console.warn('[IDB] 打开失败：', err && err.name, err && err.message);
-        useIDB = false;
-        resolve();
+        const msg = err ? `${err.name}: ${err.message}` : '未知错误';
+        console.warn('[IDB] 打开失败：', msg);
+        window._idbError = msg;
+        if (onFail) onFail(); else { useIDB = false; resolve(); }
+      };
+      req.onblocked = () => {
+        window._idbError = 'IDB 被其他标签页占用';
       };
     };
 
-    // 优先查询当前实际版本，避免用旧版本打开新 DB
+    // 策略：先查询实际版本（Chromium），失败再用 DB_VERSION，再失败不带版本
+    const fallback = () => tryOpen(DB_VERSION, () => tryOpen(null, null));
+
     if (indexedDB.databases) {
       indexedDB.databases().then(list => {
         const cur = list.find(d => d.name === DB_NAME);
-        const v = (cur && cur.version) ? Math.max(cur.version, DB_VERSION) : DB_VERSION;
-        openAt(v);
-      }).catch(() => openAt(DB_VERSION));
+        if (cur && cur.version) {
+          const v = Math.max(cur.version, DB_VERSION);
+          console.log(`[IDB] 实际版本 ${cur.version}，用 ${v} 打开`);
+          tryOpen(v, fallback);
+        } else {
+          fallback();
+        }
+      }).catch(() => fallback());
     } else {
-      // 浏览器不支持 databases API（老版本 Firefox），退回原逻辑
-      openAt(DB_VERSION);
+      // Safari/iPad Chrome 走这里
+      fallback();
     }
   });
 }
+
 const idbGetAll = s => new Promise((res, rej) => { const r = db.transaction(s,'readonly').objectStore(s).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); });
 const idbGet = (s,k) => new Promise((res, rej) => { const r = db.transaction(s,'readonly').objectStore(s).get(k); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });
 const idbPut = (s,v) => new Promise((res, rej) => { const r = db.transaction(s,'readwrite').objectStore(s).put(v); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); });
