@@ -74,6 +74,36 @@
 <main class="wrap" id="view"></main>
 <div class="wrap footer-note" id="footerNote"></div>
 
+<!-- 图片编辑器 -->
+<div class="image-editor-modal" id="imageEditorModal">
+  <div class="image-editor-content">
+    <div class="image-editor-header">
+      <div class="image-editor-title">✂️ 编辑图片</div>
+      <button class="image-editor-close" title="关闭">×</button>
+    </div>
+    <div class="image-editor-stage">
+      <div class="image-editor-canvas-wrap">
+        <img class="image-editor-img" alt="待编辑图片">
+        <div class="image-editor-crop">
+          <div class="crop-handle tl"></div>
+          <div class="crop-handle tr"></div>
+          <div class="crop-handle bl"></div>
+          <div class="crop-handle br"></div>
+        </div>
+      </div>
+    </div>
+    <div class="image-editor-toolbar">
+      <button class="btn sm" data-action="rotate-left">↶ 左转</button>
+      <button class="btn sm" data-action="rotate-right">↷ 右转</button>
+      <button class="btn sm ghost" data-action="reset">重置</button>
+      <div class="spacer"></div>
+      <button class="btn sm ghost" data-action="skip">用原图</button>
+      <button class="btn sm ghost" data-action="cancel">取消</button>
+      <button class="btn sm primary" data-action="confirm">✓ 确认</button>
+    </div>
+  </div>
+</div>
+
 <script src="js/boot.js"></script>
 </body>
 </html>

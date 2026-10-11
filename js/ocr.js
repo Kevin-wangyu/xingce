@@ -412,6 +412,216 @@ function syncAllParsedCardsToState() {
   });
 }
 
+/* ============ 图片编辑器 ============ */
+function openImageEditor(file) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('imageEditorModal');
+    if (!modal) { resolve(file); return; }
+
+    const imgEl = modal.querySelector('.image-editor-img');
+    const wrapEl = modal.querySelector('.image-editor-canvas-wrap');
+    const cropEl = modal.querySelector('.image-editor-crop');
+
+    const info = {
+      originalImg: null,
+      rotation: 0,
+      crop: { x: 0, y: 0, w: 0, h: 0 }
+    };
+
+    let resolved = false;
+    const originalUrl = URL.createObjectURL(file);
+
+    const closeModal = (result) => {
+      if (resolved) return;
+      resolved = true;
+      modal.classList.remove('show');
+      modal.style.display = 'none';
+      // 清理
+      cropEl.onpointerdown = null;
+      modal.querySelectorAll('.crop-handle').forEach(h => h.onpointerdown = null);
+      try { URL.revokeObjectURL(originalUrl); } catch {}
+      if (imgEl.src && imgEl.src.startsWith('blob:')) {
+        try { URL.revokeObjectURL(imgEl.src); } catch {}
+      }
+      resolve(result);
+    };
+
+    const clampCrop = () => {
+      const r = imgEl.getBoundingClientRect();
+      const minSize = 40;
+      info.crop.w = Math.max(minSize, Math.min(info.crop.w, r.width));
+      info.crop.h = Math.max(minSize, Math.min(info.crop.h, r.height));
+      info.crop.x = Math.max(0, Math.min(info.crop.x, r.width - info.crop.w));
+      info.crop.y = Math.max(0, Math.min(info.crop.y, r.height - info.crop.h));
+    };
+
+    const updateCropEl = () => {
+      cropEl.style.left = info.crop.x + 'px';
+      cropEl.style.top = info.crop.y + 'px';
+      cropEl.style.width = info.crop.w + 'px';
+      cropEl.style.height = info.crop.h + 'px';
+    };
+
+    const initFullCrop = () => {
+      const r = imgEl.getBoundingClientRect();
+      info.crop = { x: 0, y: 0, w: r.width, h: r.height };
+      updateCropEl();
+    };
+
+    const renderRotation = () => {
+      if (!info.originalImg) return;
+      const canvas = document.createElement('canvas');
+      const rot = info.rotation % 360;
+      const swap = (rot === 90 || rot === 270);
+      canvas.width = swap ? info.originalImg.height : info.originalImg.width;
+      canvas.height = swap ? info.originalImg.width : info.originalImg.height;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(rot * Math.PI / 180);
+      ctx.drawImage(info.originalImg, -info.originalImg.width / 2, -info.originalImg.height / 2);
+      canvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        imgEl.onload = () => {
+          requestAnimationFrame(() => {
+            const r = imgEl.getBoundingClientRect();
+            info.crop = { x: 0, y: 0, w: r.width, h: r.height };
+            updateCropEl();
+          });
+        };
+        imgEl.src = url;
+      }, 'image/jpeg', 0.95);
+    };
+
+    // 拖拽：整个裁剪框
+    cropEl.onpointerdown = (e) => {
+      if (e.target.classList.contains('crop-handle')) return;
+      e.preventDefault();
+      const sx = e.clientX, sy = e.clientY;
+      const sc = { ...info.crop };
+      const onMove = (ev) => {
+        info.crop.x = sc.x + (ev.clientX - sx);
+        info.crop.y = sc.y + (ev.clientY - sy);
+        clampCrop(); updateCropEl();
+      };
+      const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    };
+
+    // 拖拽：四个角
+    const setupHandle = (handle, dir) => {
+      if (!handle) return;
+      handle.onpointerdown = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const sx = e.clientX, sy = e.clientY;
+        const sc = { ...info.crop };
+        const onMove = (ev) => {
+          const dx = ev.clientX - sx;
+          const dy = ev.clientY - sy;
+          if (dir.includes('l')) {
+            info.crop.x = sc.x + dx;
+            info.crop.w = sc.w - dx;
+          }
+          if (dir.includes('r')) {
+            info.crop.w = sc.w + dx;
+          }
+          if (dir.includes('t')) {
+            info.crop.y = sc.y + dy;
+            info.crop.h = sc.h - dy;
+          }
+          if (dir.includes('b')) {
+            info.crop.h = sc.h + dy;
+          }
+          clampCrop(); updateCropEl();
+        };
+        const onUp = () => {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+        };
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      };
+    };
+    setupHandle(modal.querySelector('.crop-handle.tl'), 'tl');
+    setupHandle(modal.querySelector('.crop-handle.tr'), 'tr');
+    setupHandle(modal.querySelector('.crop-handle.bl'), 'bl');
+    setupHandle(modal.querySelector('.crop-handle.br'), 'br');
+
+    // 按钮
+    modal.querySelector('[data-action="rotate-left"]').onclick = () => {
+      info.rotation = (info.rotation - 90 + 360) % 360;
+      renderRotation();
+    };
+    modal.querySelector('[data-action="rotate-right"]').onclick = () => {
+      info.rotation = (info.rotation + 90) % 360;
+      renderRotation();
+    };
+    modal.querySelector('[data-action="reset"]').onclick = () => {
+      info.rotation = 0;
+      renderRotation();
+    };
+    modal.querySelector('[data-action="skip"]').onclick = () => closeModal(file);
+    modal.querySelector('[data-action="cancel"]').onclick = () => closeModal(null);
+    modal.querySelector('.image-editor-close').onclick = () => closeModal(null);
+    modal.querySelector('[data-action="confirm"]').onclick = async () => {
+      const result = await applyEditAndExport(info, imgEl);
+      if (!result) { alert('处理失败，请重试'); return; }
+      closeModal(new File([result], 'edited.jpg', { type: 'image/jpeg' }));
+    };
+
+    // 加载图片
+    const img = new Image();
+    img.onload = () => {
+      info.originalImg = img;
+      imgEl.onload = () => {
+        requestAnimationFrame(() => requestAnimationFrame(() => initFullCrop()));
+      };
+      imgEl.src = originalUrl;
+      modal.classList.add('show');
+      modal.style.display = 'flex';
+    };
+    img.onerror = () => closeModal(null);
+    img.src = originalUrl;
+  });
+}
+
+async function applyEditAndExport(info, imgEl) {
+  const dispW = imgEl.getBoundingClientRect().width;
+  const dispH = imgEl.getBoundingClientRect().height;
+  const scaleX = imgEl.naturalWidth / dispW;
+  const scaleY = imgEl.naturalHeight / dispH;
+
+  const cropX = info.crop.x * scaleX;
+  const cropY = info.crop.y * scaleY;
+  const cropW = info.crop.w * scaleX;
+  const cropH = info.crop.h * scaleY;
+
+  // 先把原图旋转到正确方向
+  const rotCanvas = document.createElement('canvas');
+  const rot = info.rotation % 360;
+  const swap = (rot === 90 || rot === 270);
+  rotCanvas.width = swap ? info.originalImg.height : info.originalImg.width;
+  rotCanvas.height = swap ? info.originalImg.width : info.originalImg.height;
+  const rctx = rotCanvas.getContext('2d');
+  rctx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+  rctx.rotate(rot * Math.PI / 180);
+  rctx.drawImage(info.originalImg, -info.originalImg.width / 2, -info.originalImg.height / 2);
+
+  // 再裁剪
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = Math.round(cropW);
+  finalCanvas.height = Math.round(cropH);
+  const fctx = finalCanvas.getContext('2d');
+  fctx.drawImage(rotCanvas, cropX, cropY, cropW, cropH, 0, 0, finalCanvas.width, finalCanvas.height);
+
+  return new Promise((resolve) => {
+    finalCanvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.92);
+  });
+}
+
 function bindCollectEvents() {
   const s = state.collect;
   const view = document.getElementById('view');
@@ -427,9 +637,17 @@ function bindCollectEvents() {
     const arr = Array.from(files).filter(f => f && f.type.startsWith('image/'));
     if (!arr.length) return;
 
+    // 单张 → 打开编辑器；多张 → 直接使用
+    let finalFiles = arr;
+    if (arr.length === 1) {
+      const edited = await openImageEditor(arr[0]);
+      if (edited === null) return; // 用户取消
+      finalFiles = [edited];
+    }
+
     state.collect.editedOcrText = '';
 
-    const items = await Promise.all(arr.map(async f => {
+    const items = await Promise.all(finalFiles.map(async f => {
       const dataUrl = await new Promise(res => {
         const r = new FileReader();
         r.onload = ev => res(ev.target.result || '');
@@ -438,9 +656,7 @@ function bindCollectEvents() {
       });
       let imageId = '';
       if (useIDB && dataUrl) {
-        try {
-          imageId = await idbPutImage(f);
-        } catch (e) { console.warn('图片存储失败：', e); }
+        try { imageId = await idbPutImage(f); } catch (e) { console.warn('图片存储失败：', e); }
       }
       return { id: uid(), file: f, dataUrl, imageId, ocrText: '', status: 'pending', error: '' };
     }));
