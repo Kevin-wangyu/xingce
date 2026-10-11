@@ -412,41 +412,104 @@ function renderSettings(view) {
       <div class="settings-sub">配置 AI、数据与账号</div>
     </div>
 
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">AI 设置</div>
-          <div class="card-sub">用于 OCR 文本的自动结构化、归类与分析</div>
+    <!-- 第 1 行：AI 设置 + 云同步（并排） -->
+    <div class="settings-grid-2">
+      <!-- AI 设置（窄） -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">AI 设置</div>
+            <div class="card-sub">OCR 自动结构化</div>
+          </div>
+          <span class="tag ${hasKey ? 'success' : 'warn'}">${hasKey ? '已配置' : '未配置'}</span>
         </div>
-        <span class="tag ${hasKey ? 'success' : 'warn'}">${hasKey ? '已配置' : '未配置'}</span>
+
+        <label style="margin-top:0;font-size:12.5px">DeepSeek API Key</label>
+        <input id="apiKeyInput" class="input" type="password" placeholder="sk-..." value="${esc(getApiKey())}">
+        <div style="font-size:11.5px;color:var(--text-3);margin-top:8px;line-height:1.7">
+          前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" style="color:var(--primary)">platform.deepseek.com</a> 获取
+        </div>
+
+        <div class="actions" style="margin-top:12px">
+          <button class="btn primary sm" id="saveKeyBtn">保存</button>
+          ${hasKey ? '<button class="btn ghost sm" id="clearKeyBtn">清除</button>' : ''}
+        </div>
       </div>
 
-      <label style="margin-top:0">DeepSeek API Key</label>
-      <input id="apiKeyInput" class="input" type="password" placeholder="sk-..." value="${esc(getApiKey())}">
-      <div style="font-size:12px;color:var(--text-3);margin-top:8px;line-height:1.6">
-        前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" style="color:var(--primary)">platform.deepseek.com</a> 获取。Key 只保存在本机浏览器，不会上传到任何第三方。约 1 元可用很久。
-      </div>
+      <!-- 云同步（宽） -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">云同步</div>
+            <div class="card-sub">Gist 同步 + 图床</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            ${lastSyncedAt ? `
+              <div style="font-size:11px;color:var(--text-3);margin-top:10px;display:flex;align-items:center;gap:6px">
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--success)"></span>
+                上次：${new Date(lastSyncedAt).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+              </div>
+            ` : `
+              <div style="font-size:11px;color:var(--text-3);margin-top:10px">尚未同步过</div>
+            `}
+            <span class="tag ${getGistId() && getGistToken() ? 'success' : 'gray'}">
+              ${getGistId() && getGistToken() ? '已配置' : '未配置'}
+            </span>
+            ${getGistId() && getGistToken() ? `
+              <button class="btn primary sm" id="gist-sync-now">立即同步</button>
+            ` : ''}
+          </div>
+        </div>
 
-      <div class="actions">
-        <button class="btn primary" id="saveKeyBtn">保存</button>
-        ${hasKey ? '<button class="btn ghost" id="clearKeyBtn">清除</button>' : ''}
+        <div class="settings-sync-cols">
+          <!-- 左列：Gist 配置 -->
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px">① Gist 配置</div>
+            <input id="gist-id" class="input" style="margin-bottom:8px;font-size:13px" placeholder="Gist ID" value="${esc(getGistId())}">
+            <input id="gist-token" class="input" type="password" style="font-size:13px" placeholder="Token (ghp_...)" value="${esc(getGistToken())}">
+            <div style="font-size:11px;color:var(--text-3);margin-top:6px;line-height:1.6">
+              <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--primary)">生成 Token</a>（只需 gist 权限）
+            </div>
+            <div class="actions" style="margin-top:10px;gap:6px">
+              <button class="btn primary sm" id="gist-save">保存</button>
+              ${getGistId() && getGistToken() ? `
+                <button class="btn ghost sm" id="gist-clear">清除</button>
+              ` : ''}
+            </div>
+
+          </div>
+
+          <!-- 右列：图床 -->
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px">② 图床</div>
+            <select id="imageHostSelect" class="input" style="margin-bottom:8px;font-size:13px">
+              <option value="imgbb" ${currentImageHost === 'imgbb' ? 'selected' : ''}>ImgBB</option>
+              <option value="beeimg" ${currentImageHost === 'beeimg' ? 'selected' : ''}>蜜蜂图床</option>
+            </select>
+            <input id="imgbbKeyInput" class="input" type="password" style="margin-bottom:8px;font-size:13px" placeholder="ImgBB API Key" value="${esc(getImgHostKey('imgbb'))}">
+            <input id="beeimgKeyInput" class="input" type="password" style="font-size:13px" placeholder="蜜蜂图床 Key（可选）" value="${esc(getImgHostKey('beeimg'))}">
+            <div class="actions" style="margin-top:10px;gap:6px">
+              <button class="btn primary sm" id="saveImgHostBtn">保存</button>
+              <button class="btn sm" id="cleanGistThumbsBtn" title="从 Gist 移除旧 base64 缩略图">清理旧缩略图</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="card">
+    <!-- 第 2 行：对话角色 -->
+    <div class="card" style="margin-top:16px">
       <div class="card-head">
         <div>
           <div class="card-title">对话角色</div>
           <div class="card-sub">自定义"追问 AI"里的头像和名字</div>
         </div>
       </div>
-
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px" class="role-grid">
         <div>
-          <label style="margin-top:0">我的名字</label>
+          <label style="margin-top:0;font-size:12.5px">我的名字</label>
           <input id="role-me-name" class="input" value="${esc(getChatRoles().me.name)}" maxlength="12" placeholder="如：小明">
-
-          <label>我的头像</label>
+          <label style="font-size:12.5px">我的头像</label>
           <div style="display:flex;align-items:center;gap:12px">
             <div class="avatar-preview" id="role-me-preview">${renderAvatarHTML(getChatRoles().me.avatar)}</div>
             <div style="flex:1;min-width:0">
@@ -465,10 +528,9 @@ function renderSettings(view) {
         </div>
 
         <div>
-          <label style="margin-top:0">AI 的名字</label>
+          <label style="margin-top:0;font-size:12.5px">AI 的名字</label>
           <input id="role-ai-name" class="input" value="${esc(getChatRoles().ai.name)}" maxlength="12" placeholder="如：助教">
-
-          <label>AI 头像</label>
+          <label style="font-size:12.5px">AI 头像</label>
           <div style="display:flex;align-items:center;gap:12px">
             <div class="avatar-preview" id="role-ai-preview">${renderAvatarHTML(getChatRoles().ai.avatar)}</div>
             <div style="flex:1;min-width:0">
@@ -486,174 +548,86 @@ function renderSettings(view) {
           </div>
         </div>
       </div>
-
       <div class="actions">
         <button class="btn primary" id="role-save">保存</button>
       </div>
     </div>
 
-    <div class="card">
+    <!-- 第 3 行：数据管理（2 列布局） -->
+    <div class="card" style="margin-top:16px">
       <div class="card-head">
         <div>
           <div class="card-title">数据管理</div>
           <div class="card-sub">当前有 ${questions.length} 道错题</div>
         </div>
       </div>
-      <div class="setting-row">
-        <div class="setting-row-main">
-          <div class="setting-row-title">导出备份</div>
-          <div class="setting-row-desc">将错题库导出为 JSON 文件，建议定期备份</div>
-        </div>
-        <button class="btn sm" id="exportBtn">导出</button>
-      </div>
-      <div class="setting-row">
-        <div class="setting-row-main">
-          <div class="setting-row-title">导入数据</div>
-          <div class="setting-row-desc">从 JSON 文件恢复错题库（合并，不覆盖）</div>
-        </div>
-        <button class="btn sm" id="importBtn">导入</button>
-        <input type="file" id="importFile" accept=".json" hidden>
-      </div>
-      <div class="setting-row">
-        <div class="setting-row-main">
-          <div class="setting-row-title">重置作答统计</div>
-          <div class="setting-row-desc">把所有题目的错误次数置为 1、正确次数置 0、清空作答历史。题目内容不受影响</div>
-        </div>
-        <button class="btn sm" id="resetStatsBtn">重置</button>
-      </div>
-      <div class="setting-row">
-        <div class="setting-row-main">
-          <div class="setting-row-title">生成缩略图</div>
-          <div class="setting-row-desc">默认只给缺少缩略图的图片生成。勾选下方选项会重做所有缩略图（较慢）</div>
-          <label style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text-2);cursor:pointer">
-            <input type="checkbox" id="forceThumbChk" ${state.ui.forceThumbRegen ? 'checked' : ''} style="cursor:pointer">
-            强制重新生成（覆盖已有缩略图）
-          </label>
-        </div>
-        <button class="btn sm" id="genThumbsBtn">生成</button>
-      </div>
-      <div class="setting-row">
-        <div class="setting-row-main">
-          <div class="setting-row-title">清理孤立图片</div>
-          <div class="setting-row-desc">删除没有被任何题目引用的图片，释放存储空间</div>
-        </div>
-        <button class="btn sm" id="cleanOrphanBtn">清理</button>
-      </div>
-      <div class="setting-row">
-        <div class="setting-row-main">
-          <div class="setting-row-title">清理 OCR 缓存</div>
-          <div class="setting-row-desc">释放 PaddleOCR 模型占用的空间（约 30MB）。不影响错题库，下次识别会自动重新下载</div>
-        </div>
-        <button class="btn sm" id="clearCacheBtn">清理</button>
-      </div>
-      <div class="setting-row">
-        <div class="setting-row-main">
-          <div class="setting-row-title">修复数据库</div>
-          <div class="setting-row-desc">清除 Service Worker 缓存并强制重新加载页面。数据不丢，用于解决移动端加载旧版或 IDB 打开失败</div>
-        </div>
-        <button class="btn sm danger" id="fixDbBtn">修复</button>
-      </div>
-      <div class="setting-row">
-        <div class="setting-row-main">
-          <div class="setting-row-title">清空所有数据</div>
-          <div class="setting-row-desc">删除全部错题与设置，不可恢复</div>
-        </div>
-        <button class="btn sm danger" id="resetBtn">清空</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">云同步</div>
-          <div class="card-sub">通过 GitHub Gist 在多设备间同步错题库</div>
-        </div>
-        <span class="tag ${getGistId() && getGistToken() ? 'success' : 'gray'}">
-          ${getGistId() && getGistToken() ? '已配置' : '未配置'}
-        </span>
-      </div>
-
-      <!-- ============ Gist 配置 ============ -->
-      <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:10px">
-        ① Gist 配置
-      </div>
-
-      <label style="margin-top:0;font-size:12.5px">Gist ID</label>
-      <input id="gist-id" class="input" placeholder="如 a1b2c3d4e5f6..." value="${esc(getGistId())}">
-
-      <label style="font-size:12.5px">Personal Access Token</label>
-      <input id="gist-token" class="input" type="password" placeholder="ghp_..." value="${esc(getGistToken())}">
-      <div style="font-size:11.5px;color:var(--text-3);margin-top:8px;line-height:1.7">
-        前往 <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--primary)">github.com/settings/tokens</a>
-        生成 classic token，只需勾选 <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace">gist</code> 权限。
-        Gist 建议创建 secret 类型。Token 只保存在本机浏览器。
-      </div>
-
-      <div class="actions" style="margin-top:12px">
-        <button class="btn primary sm" id="gist-save">保存配置</button>
-      </div>
-
-      <!-- ============ 图床配置 ============ -->
-      <div style="margin-top:22px;padding-top:18px;border-top:1px dashed var(--border)">
-        <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:10px">
-          ② 图片同步（图床）
-        </div>
-
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
-          <div style="flex:1;min-width:180px">
-            <label style="margin-top:0;font-size:12.5px">首选图床</label>
-            <select id="imageHostSelect" class="input">
-              <option value="imgbb" ${currentImageHost === 'imgbb' ? 'selected' : ''}>ImgBB</option>
-              <option value="beeimg" ${currentImageHost === 'beeimg' ? 'selected' : ''}>蜜蜂图床</option>
-            </select>
+      <div class="settings-2col">
+        <div class="setting-row">
+          <div class="setting-row-main">
+            <div class="setting-row-title">导出备份</div>
+            <div class="setting-row-desc">导出为 JSON 文件</div>
           </div>
+          <button class="btn sm" id="exportBtn">导出</button>
         </div>
-
-        <label style="font-size:12.5px">ImgBB API Key</label>
-        <input id="imgbbKeyInput" class="input" type="password" placeholder="在 api.imgbb.com 获取" value="${esc(getImgHostKey('imgbb'))}">
-
-        <label style="font-size:12.5px">蜜蜂图床 API Key（可选）</label>
-        <input id="beeimgKeyInput" class="input" type="password" placeholder="在 beeimg.com/api/newkey 获取" value="${esc(getImgHostKey('beeimg'))}">
-
-        <div style="font-size:11.5px;color:var(--text-3);margin-top:8px;line-height:1.7">
-          💡 图片上传到图床，Gist 只存 URL。ImgBB 未配置或上传失败时，自动切换蜜蜂图床。
-        </div>
-
-        <div class="actions" style="margin-top:12px">
-          <button class="btn primary sm" id="saveImgHostBtn">保存图床配置</button>
-          <button class="btn sm" id="cleanGistThumbsBtn" title="从 Gist 中移除旧版 base64 缩略图字段">
-            清理 Gist 旧缩略图
-          </button>
-        </div>
-      </div>
-
-      <!-- ============ 同步操作 ============ -->
-      <div style="margin-top:22px;padding-top:18px;border-top:1px dashed var(--border)">
-        <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:10px">
-          ③ 同步操作
-        </div>
-
-        ${lastSyncedAt ? `
-          <div style="font-size:12px;color:var(--text-3);margin-bottom:12px;display:flex;align-items:center;gap:6px">
-            <span style="width:6px;height:6px;border-radius:50%;background:var(--success)"></span>
-            上次同步：${new Date(lastSyncedAt).toLocaleString('zh-CN')}
+        <div class="setting-row">
+          <div class="setting-row-main">
+            <div class="setting-row-title">导入数据</div>
+            <div class="setting-row-desc">从 JSON 恢复（合并）</div>
           </div>
-        ` : `
-          <div style="font-size:12px;color:var(--text-3);margin-bottom:12px">尚未同步过</div>
-        `}
-
-        <div class="actions" style="margin-top:0">
-          ${getGistId() && getGistToken() ? `
-            <button class="btn primary" id="gist-sync-now">立即同步</button>
-            <button class="btn ghost" id="gist-clear">清除配置</button>
-          ` : `
-            <div style="font-size:12.5px;color:var(--text-3);padding:6px 0">保存上方 Gist 配置后即可开始同步</div>
-          `}
+          <button class="btn sm" id="importBtn">导入</button>
+          <input type="file" id="importFile" accept=".json" hidden>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row-main">
+            <div class="setting-row-title">重置作答统计</div>
+            <div class="setting-row-desc">错误次数置 1、正确次数置 0</div>
+          </div>
+          <button class="btn sm" id="resetStatsBtn">重置</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row-main">
+            <div class="setting-row-title">生成缩略图</div>
+            <div class="setting-row-desc">为缺缩略图的图片补全</div>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px;color:var(--text-2);cursor:pointer">
+              <input type="checkbox" id="forceThumbChk" ${state.ui.forceThumbRegen ? 'checked' : ''} style="cursor:pointer">
+              强制重做全部
+            </label>
+          </div>
+          <button class="btn sm" id="genThumbsBtn">生成</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row-main">
+            <div class="setting-row-title">清理孤立图片</div>
+            <div class="setting-row-desc">删除未被任何题目引用的图片</div>
+          </div>
+          <button class="btn sm" id="cleanOrphanBtn">清理</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row-main">
+            <div class="setting-row-title">清理 OCR 缓存</div>
+            <div class="setting-row-desc">释放 PaddleOCR 模型（约 30MB）</div>
+          </div>
+          <button class="btn sm" id="clearCacheBtn">清理</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row-main">
+            <div class="setting-row-title">修复数据库</div>
+            <div class="setting-row-desc">清除 SW 缓存并强制重载</div>
+          </div>
+          <button class="btn sm danger" id="fixDbBtn">修复</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row-main">
+            <div class="setting-row-title">清空所有数据</div>
+            <div class="setting-row-desc">删除全部错题与设置，不可恢复</div>
+          </div>
+          <button class="btn sm danger" id="resetBtn">清空</button>
         </div>
       </div>
     </div>
 
-    <div class="card">
+    <!-- 第 4 行：关于 -->
+    <div class="card" style="margin-top:16px">
       <div class="card-head">
         <div>
           <div class="card-title">关于</div>
@@ -665,7 +639,7 @@ function renderSettings(view) {
           版本：<code>2026-10-11</code> · 环境：<code>${location.protocol}</code> · 
           IndexedDB：<code>${useIDB ? '可用 v' + (db?.version || '?') : '不可用'}</code>
         </p>
-        <p>行测错题本是一个纯浏览器端应用，所有数据保存在本机 <code>IndexedDB</code>，设置Gist可即时同步和备份数据。</p>
+        <p>行测错题本是一个纯浏览器端应用，所有数据保存在本机 <code>IndexedDB</code>，设置 Gist 可即时同步和备份数据。</p>
         <div class="about-features">
           <div class="about-feature">
             <b>📸 截图收录</b>

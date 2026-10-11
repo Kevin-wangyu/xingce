@@ -2626,3 +2626,57 @@ details.card.collapsible > .card-body {
   .chat-role { width: 28px; height: 28px; font-size: 14px; }
   .chat-role-name { font-size: 10.5px; }
 }
+
+/* ============ 设置页紧凑布局 ============ */
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+  margin-top: 16px;
+}
+.settings-grid-2 > .card { margin-top: 0; }
+@media (max-width: 900px) {
+  .settings-grid-2 { grid-template-columns: 1fr; }
+}
+
+.settings-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 28px;
+}
+.settings-2col > .setting-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-2col > .setting-row:nth-last-child(-n+2) {
+  border-bottom: none;
+}
+@media (max-width: 640px) {
+  .settings-2col { grid-template-columns: 1fr; gap: 0; }
+  .settings-2col > .setting-row:nth-last-child(-n+1) { border-bottom: none; }
+}
+
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 2fr;   /* AI 设置 1 份，云同步 2 份 */
+  gap: 16px;
+  align-items: stretch;             /* 让两张卡片等高 */
+  margin-top: 16px;
+}
+.settings-grid-2 > .card { margin-top: 0; }
+
+/* 云同步内部：Gist | 图床 两列 */
+.settings-sync-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .settings-grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .settings-sync-cols { grid-template-columns: 1fr; gap: 16px; }
+}
