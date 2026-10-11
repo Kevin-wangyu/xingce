@@ -490,7 +490,6 @@ function renderSettings(view) {
             <input id="beeimgKeyInput" class="input" type="password" style="font-size:13px" placeholder="蜜蜂图床 Key（可选）" value="${esc(getImgHostKey('beeimg'))}">
             <div class="actions" style="margin-top:10px;gap:6px">
               <button class="btn primary sm" id="saveImgHostBtn">保存</button>
-              <button class="btn sm" id="cleanGistThumbsBtn" title="从 Gist 移除旧 base64 缩略图">清理旧缩略图</button>
             </div>
           </div>
         </div>
@@ -584,17 +583,7 @@ function renderSettings(view) {
           </div>
           <button class="btn sm" id="resetStatsBtn">重置</button>
         </div>
-        <div class="setting-row">
-          <div class="setting-row-main">
-            <div class="setting-row-title">生成缩略图</div>
-            <div class="setting-row-desc">为缺缩略图的图片补全</div>
-            <label style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px;color:var(--text-2);cursor:pointer">
-              <input type="checkbox" id="forceThumbChk" ${state.ui.forceThumbRegen ? 'checked' : ''} style="cursor:pointer">
-              强制重做全部
-            </label>
-          </div>
-          <button class="btn sm" id="genThumbsBtn">生成</button>
-        </div>
+
         <div class="setting-row">
           <div class="setting-row-main">
             <div class="setting-row-title">清理孤立图片</div>
@@ -711,105 +700,6 @@ function renderSettings(view) {
   if (elClearCache) elClearCache.addEventListener('click', async () => {
     if (!confirm('清理 OCR 缓存？\n\n错题库不受影响。下次识别时会重新下载模型（约需 15 秒）。')) return;
     await clearOcrCache();
-  });
-
-  const forceChk = view.querySelector('#forceThumbChk');
-  if (forceChk) {
-    forceChk.addEventListener('change', (e) => {
-      state.ui.forceThumbRegen = !!e.target.checked;
-      console.log('[缩略图] 强制选项已保存到 state:', state.ui.forceThumbRegen);
-    });
-  }
-  
-  const elGenThumbs = view.querySelector('#genThumbsBtn');
-  if (elGenThumbs) elGenThumbs.addEventListener('click', async () => {
-    if (!useIDB) { alert('当前是 localStorage 模式，无图片数据'); return; }
-    if (!confirm('为所有旧图片生成缩略图？\n\n过程中页面可能短暂卡顿，完成后自动同步到云端。')) return;
-
-    // 弹出进度模态框
-    const overlay = document.createElement('div');
-    overlay.className = 'dup-overlay';
-    overlay.innerHTML = `
-      <div class="dup-modal" style="max-width:420px">
-        <div class="dup-head">
-          <div class="dup-title">📐 正在生成缩略图</div>
-          <div class="dup-sub" id="thumbProgressText">准备中…</div>
-        </div>
-        <div style="padding:0 22px 22px">
-          <div class="progress-bar" style="height:8px">
-            <div class="progress-fill" id="thumbProgressBar" style="width:0%"></div>
-          </div>
-          <div style="margin-top:14px;font-size:12.5px;color:var(--text-3);line-height:1.7" id="thumbStats">
-            统计中…
-          </div>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    const textEl = overlay.querySelector('#thumbProgressText');
-    const barEl = overlay.querySelector('#thumbProgressBar');
-    const statsEl = overlay.querySelector('#thumbStats');
-
-    try {
-      const forceChk = view.querySelector('#forceThumbChk');
-      const force = !!state.ui.forceThumbRegen;
-      console.log('[缩略图] 点击生成，force =', force);
-
-      // 先查一下 images 表里有多少条记录
-      try {
-        const allRecs = await new Promise((resolve, reject) => {
-          const r = db.transaction('images', 'readonly').objectStore('images').getAll();
-          r.onsuccess = () => resolve(r.result || []);
-          r.onerror = () => reject(r.error);
-        });
-        const withBlob = allRecs.filter(x => x.blob).length;
-        const withThumb = allRecs.filter(x => x.thumbnail).length;
-        console.log(`[缩略图] images 表共 ${allRecs.length} 条：有原图 ${withBlob}，有缩略图 ${withThumb}`);
-      } catch (e) { console.warn(e); }
-
-      const result = await generateMissingThumbnails((info) => {
-        if (info.phase === 'start') {
-          if (info.total === 0) {
-            textEl.textContent = '没有需要处理的图片';
-            statsEl.innerHTML = '所有图片都已有缩略图。';
-            barEl.style.width = '100%';
-          } else {
-            textEl.textContent = `共 ${info.total} 张待处理`;
-            barEl.style.width = '0%';
-          }
-        } else if (info.phase === 'progress') {
-          const pct = Math.round((info.done + info.failed) / info.total * 100);
-          barEl.style.width = pct + '%';
-          textEl.textContent = `处理中… ${info.current} / ${info.total}`;
-          statsEl.innerHTML = `✓ 成功 <b>${info.done}</b> · ✗ 失败 <b>${info.failed}</b>`;
-        } else if (info.phase === 'done') {
-          barEl.style.width = '100%';
-          textEl.textContent = '处理完成';
-        }
-      }, force);
-
-      // 完成后 2 秒关闭
-      setTimeout(() => {
-        overlay.remove();
-        if (result.total === 0) {
-          showToast('所有图片都已有缩略图');
-        } else {
-          showToast(`已生成 ${result.done} 张缩略图${result.failed ? '（' + result.failed + ' 张失败）' : ''}`);
-        }
-        // 完成后重置勾选，避免下次误触
-        state.ui.forceThumbRegen = false;
-        // 如果有成功的，触发同步
-        if (result.done > 0 && getGistId() && getGistToken()) {
-          setTimeout(() => {
-            pushToGist().catch(() => {});
-          }, 500);
-        }
-      }, 1500);
-    } catch (e) {
-      overlay.remove();
-      alert('生成失败：' + e.message);
-    }
   });
 
   const elFixDb = view.querySelector('#fixDbBtn');
@@ -987,23 +877,6 @@ function renderSettings(view) {
     setImgHostKey('imgbb', imgbbKey);
     setImgHostKey('beeimg', beeimgKey);
     showToast('图床配置已保存');
-  });
-
-  const cleanGistBtn = view.querySelector('#cleanGistThumbsBtn');
-  if (cleanGistBtn) cleanGistBtn.addEventListener('click', async () => {
-    if (!getGistId() || !getGistToken()) { alert('请先配置 Gist'); return; }
-    if (!confirm('从 Gist 中删除旧缩略图字段？\n\n错题数据不受影响，仅清理旧版本的 base64 缩略图。')) return;
-    cleanGistBtn.disabled = true;
-    cleanGistBtn.innerHTML = '<span class="spinner"></span> 清理中…';
-    try {
-      await cleanGistThumbnails();
-    } catch (e) {
-      alert('清理失败：' + e.message);
-    } finally {
-      cleanGistBtn.disabled = false;
-      cleanGistBtn.textContent = '清理 Gist 旧缩略图';
-      renderView();
-    }
   });
 
   /* ============ 对话角色配置 ============ */
@@ -2762,7 +2635,6 @@ function renderBrowseDetail(view) {
         box.style.cssText = 'position:relative;display:inline-block;flex:0 0 auto';
         box.innerHTML = `
           <img src="${info.url}" class="detail-image" alt="题目图片">
-          ${info.isThumb ? `<span class="thumb-badge" title="这是从其他设备同步过来的缩略图">📱 缩略图</span>` : ''}
         `;
         const img = box.querySelector('img');
         img.addEventListener('click', () => openImageLightbox(info.url));

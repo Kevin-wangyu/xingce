@@ -189,7 +189,7 @@ async function pushToGist() {
       try {
         const rec = await idbGetImage(imgId);
         if (!rec) continue;
-        const blobToUpload = rec.blob || rec.thumbnail;
+        const blobToUpload = rec.blob;
         if (!blobToUpload) continue;
         console.log(`[同步] 上传 ${imgId}（${Math.round(blobToUpload.size / 1024)} KB）...`);
         const url = await uploadToImageHost(blobToUpload);
@@ -293,27 +293,6 @@ async function mergeRemote(remote) {
     }
   }
 
-  /* 兼容旧格式 thumbnails（过渡用，将来可删） */
-  const remoteThumbs = remote.thumbnails || {};
-  let thumbAdded = 0;
-  for (const [imgId, dataURL] of Object.entries(remoteThumbs)) {
-    try {
-      const localRec = await idbGetImage(imgId);
-      if (localRec && (localRec.blob || localRec.thumbnail)) continue;
-      const thumbBlob = dataURLToBlob(dataURL);
-      if (!thumbBlob) continue;
-      await new Promise((resolve, reject) => {
-        const r = db.transaction('images', 'readwrite').objectStore('images').put({ id: imgId, thumbnail: thumbBlob, createdAt: Date.now() });
-        r.onsuccess = () => resolve();
-        r.onerror = () => reject(r.error);
-      });
-      thumbAdded++;
-    } catch (e) {
-      console.warn('[同步] 兼容旧缩略图失败：', imgId, e);
-    }
-  }
-  if (thumbAdded) console.log(`[同步] 兼容导入 ${thumbAdded} 张旧缩略图`);
-
   await setMeta('deletedIds', deletedIds);
   scheduleFlush();
 
@@ -331,44 +310,4 @@ async function syncNow() {
     alert('同步失败：' + e.message);
   }
   renderView();
-}
-
-/* ============ 清理 Gist 中的旧缩略图 ============ */
-async function cleanGistThumbnails() {
-  const id = getGistId();
-  const token = getGistToken();
-  if (!id || !token) throw new Error('请先配置 Gist');
-
-  const content = await getGistContent();
-  if (!content) { showToast('Gist 文件为空'); return; }
-
-  let remote;
-  try {
-    remote = JSON.parse(content);
-  } catch (e) {
-    throw new Error('Gist 内容解析失败：' + e.message);
-  }
-
-  if (!remote.thumbnails) {
-    showToast('Gist 中没有旧缩略图字段');
-    return;
-  }
-
-  const beforeKB = Math.round(JSON.stringify(remote).length / 1024);
-  delete remote.thumbnails;
-  remote.lastSyncedAt = Date.now();
-  const contentStr = JSON.stringify(remote, null, 2);
-  const afterKB = Math.round(contentStr.length / 1024);
-
-  const res = await fetch(`https://api.github.com/gists/${id}`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `token ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ files: { [GIST_FILENAME]: { content: contentStr } } })
-  });
-  if (!res.ok) throw new Error('GitHub 返回 ' + res.status);
-  console.log(`[清理] ${beforeKB} KB → ${afterKB} KB`);
-  showToast(`Gist 旧缩略图已清理（${beforeKB} → ${afterKB} KB）`);
 }

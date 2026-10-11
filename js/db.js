@@ -92,124 +92,11 @@ let deletedIds = [];
 let lastSyncedAt = 0;
 let pushTimer = null;
 let syncing = false;
-/* ============ 图片处理 ============ */
-const THUMB_MAX_WIDTH = 320;
-const THUMB_QUALITY = 0.72;
 
-/* 生成缩略图（返回 Blob） */
-async function generateThumbnail(file) {
-  return new Promise((resolve) => {
-    try {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          try {
-            const ratio = img.width > THUMB_MAX_WIDTH ? THUMB_MAX_WIDTH / img.width : 1;
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.max(1, Math.round(img.width * ratio));
-            canvas.height = Math.max(1, Math.round(img.height * ratio));
-            const ctx = canvas.getContext('2d');
-            // 白底填充（防止透明 PNG 变黑）
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            canvas.toBlob((blob) => resolve(blob), 'image/jpeg', THUMB_QUALITY);
-          } catch (err) {
-            console.warn('[缩略图] canvas 失败：', err);
-            resolve(null);
-          }
-        };
-        img.onerror = () => resolve(null);
-        img.src = e.target.result;
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-    } catch (e) {
-      resolve(null);
-    }
-  });
-}
-/* ============ 为旧图批量生成缩略图 ============ */
-async function generateMissingThumbnails(onProgress, force = false) {
-  if (!useIDB) {
-    return { total: 0, done: 0, failed: 0, skipped: 0 };
-  }
-
-  let allImages = [];
-  try {
-    allImages = await new Promise((resolve, reject) => {
-      const r = db.transaction('images', 'readonly').objectStore('images').getAll();
-      r.onsuccess = () => resolve(r.result || []);
-      r.onerror = () => reject(r.error);
-    });
-  } catch (e) {
-    throw new Error('读取图片失败：' + e.message);
-  }
-
-  // force 模式：所有有原图的记录都处理
-  // 默认模式：只处理有原图但无缩略图的记录
-  const needWork = force
-    ? allImages.filter(rec => rec.blob)
-    : allImages.filter(rec => rec.blob && !rec.thumbnail);
-
-  const total = needWork.length;
-  let done = 0, failed = 0, skipped = 0;
-
-  if (onProgress) onProgress({ total, done, failed, skipped, phase: 'start' });
-
-  for (let i = 0; i < needWork.length; i++) {
-    const rec = needWork[i];
-    try {
-      const thumbBlob = await generateThumbnail(rec.blob);
-      if (!thumbBlob) {
-        failed++;
-      } else {
-        rec.thumbnail = thumbBlob;
-        await new Promise((resolve, reject) => {
-          const r = db.transaction('images', 'readwrite').objectStore('images').put(rec);
-          r.onsuccess = () => resolve();
-          r.onerror = () => reject(r.error);
-        });
-        done++;
-      }
-    } catch (e) {
-      console.warn('[缩略图] 处理失败：', rec.id, e);
-      failed++;
-    }
-    if (onProgress) onProgress({ total, done, failed, skipped, phase: 'progress', current: i + 1 });
-    await new Promise(r => setTimeout(r, 0));
-  }
-
-  if (onProgress) onProgress({ total, done, failed, skipped, phase: 'done' });
-  return { total, done, failed, skipped };
-}
-/* Blob → base64 dataURL */
-function blobToDataURL(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-/* base64 dataURL → Blob */
-function dataURLToBlob(dataURL) {
-  const parts = String(dataURL || '').split(',');
-  if (parts.length !== 2) return null;
-  const m = parts[0].match(/:(.*?);/);
-  const mime = m ? m[1] : 'image/jpeg';
-  const bin = atob(parts[1]);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return new Blob([arr], { type: mime });
-}
-function idbPutImage(blob, thumbnailBlob) {
+function idbPutImage(blob) {
   return new Promise((resolve, reject) => {
     const id = 'img_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const rec = { id, blob, createdAt: Date.now() };
-    if (thumbnailBlob) rec.thumbnail = thumbnailBlob;
     const r = db.transaction('images', 'readwrite').objectStore('images').put(rec);
     r.onsuccess = () => resolve(id);
     r.onerror = () => reject(r.error);
@@ -234,52 +121,22 @@ function idbDeleteImage(id) {
 
 /* 异步加载图片 objectURL（带缓存） */
 async function loadImageUrl(imageId) {
-  if (!imageId) return null;
-
-  // 1. 优先使用本地原图（Blob）
-  try {
-    const rec = await idbGetImage(imageId);
-    if (rec && rec.blob) {
-      if (!_imageUrlCache.has(imageId)) {
-        const url = URL.createObjectURL(rec.blob);
-        _imageUrlCache.set(imageId, url);
-      }
-      return _imageUrlCache.get(imageId);
-    }
-  } catch (e) {}
-
-  // 2. 本地无原图，尝试从图床 URL 加载
-  try {
-    const urlMap = await getMeta('imageUrlMap') || {};
-    if (urlMap[imageId]) {
-      return urlMap[imageId]; // 直接返回图床 URL
-    }
-  } catch (e) {}
-
-  return null;
+  const info = await loadImageInfo(imageId);
+  return info ? info.url : null;
 }
 
-/* 返回图片信息 + 是否缩略图 */
+/* 返回图片信息 */
 async function loadImageInfo(imageId) {
   if (!imageId) return null;
   try {
     const rec = await idbGetImage(imageId);
-    if (rec) {
-      if (rec.blob) {
-        if (_imageUrlCache.has(imageId)) return { url: _imageUrlCache.get(imageId), isThumb: false };
-        const url = URL.createObjectURL(rec.blob);
-        _imageUrlCache.set(imageId, url);
-        return { url, isThumb: false };
-      }
-      if (rec.thumbnail) {
-        const key = imageId + '_thumb';
-        if (_imageUrlCache.has(key)) return { url: _imageUrlCache.get(key), isThumb: true };
-        const url = URL.createObjectURL(rec.thumbnail);
-        _imageUrlCache.set(key, url);
-        return { url, isThumb: true };
-      }
+    if (rec && rec.blob) {
+      if (_imageUrlCache.has(imageId)) return { url: _imageUrlCache.get(imageId), isThumb: false };
+      const url = URL.createObjectURL(rec.blob);
+      _imageUrlCache.set(imageId, url);
+      return { url, isThumb: false };
     }
-    // 本地无 → 从图床 URL 加载
+    // 本地无原图 → 从图床 URL 加载
     const urlMap = await getMeta('imageUrlMap') || {};
     if (urlMap[imageId]) {
       return { url: urlMap[imageId], isThumb: false, fromHost: true };

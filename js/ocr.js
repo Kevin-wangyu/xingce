@@ -439,8 +439,7 @@ function bindCollectEvents() {
       let imageId = '';
       if (useIDB && dataUrl) {
         try {
-          const thumbBlob = await generateThumbnail(f);
-          imageId = await idbPutImage(f, thumbBlob);
+          imageId = await idbPutImage(f);
         } catch (e) { console.warn('图片存储失败：', e); }
       }
       return { id: uid(), file: f, dataUrl, imageId, ocrText: '', status: 'pending', error: '' };
