@@ -93,8 +93,8 @@ let lastSyncedAt = 0;
 let pushTimer = null;
 let syncing = false;
 /* ============ 图片处理 ============ */
-const THUMB_MAX_WIDTH = 320;
-const THUMB_QUALITY = 0.72;
+const THUMB_MAX_WIDTH = 640;
+const THUMB_QUALITY = 0.9;
 
 /* 生成缩略图（返回 Blob） */
 async function generateThumbnail(file) {
@@ -131,12 +131,11 @@ async function generateThumbnail(file) {
   });
 }
 /* ============ 为旧图批量生成缩略图 ============ */
-async function generateMissingThumbnails(onProgress) {
+async function generateMissingThumbnails(onProgress, force = false) {
   if (!useIDB) {
     return { total: 0, done: 0, failed: 0, skipped: 0 };
   }
 
-  // 读取所有图片记录
   let allImages = [];
   try {
     allImages = await new Promise((resolve, reject) => {
@@ -148,8 +147,12 @@ async function generateMissingThumbnails(onProgress) {
     throw new Error('读取图片失败：' + e.message);
   }
 
-  // 筛选需要处理的（有 blob 但无 thumbnail）
-  const needWork = allImages.filter(rec => rec.blob && !rec.thumbnail);
+  // force 模式：所有有原图的记录都处理
+  // 默认模式：只处理有原图但无缩略图的记录
+  const needWork = force
+    ? allImages.filter(rec => rec.blob)
+    : allImages.filter(rec => rec.blob && !rec.thumbnail);
+
   const total = needWork.length;
   let done = 0, failed = 0, skipped = 0;
 
@@ -158,7 +161,6 @@ async function generateMissingThumbnails(onProgress) {
   for (let i = 0; i < needWork.length; i++) {
     const rec = needWork[i];
     try {
-      // 用 blob 生成缩略图
       const thumbBlob = await generateThumbnail(rec.blob);
       if (!thumbBlob) {
         failed++;
@@ -176,7 +178,6 @@ async function generateMissingThumbnails(onProgress) {
       failed++;
     }
     if (onProgress) onProgress({ total, done, failed, skipped, phase: 'progress', current: i + 1 });
-    // 让出主线程，避免卡死
     await new Promise(r => setTimeout(r, 0));
   }
 

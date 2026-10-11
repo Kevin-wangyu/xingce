@@ -716,6 +716,7 @@ function renderSettings(view) {
     const statsEl = overlay.querySelector('#thumbStats');
 
     try {
+      const force = !!view.querySelector('#forceThumbChk')?.checked;
       const result = await generateMissingThumbnails((info) => {
         if (info.phase === 'start') {
           if (info.total === 0) {
