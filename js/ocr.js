@@ -181,9 +181,10 @@ async function ocrWithPaddle(file) {
 
 
 /* ============ 多图 OCR ============ */
-s.editedOcrText = '';   // 新一批识别开始，清空旧编辑
+
 async function processAllImages() {
   const s = state.collect;
+  s.editedOcrText = '';   // 新一批识别开始，清空旧编辑
   if (s._ocrRunning) return;
   s._ocrRunning = true;
   s.busy = true;

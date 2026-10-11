@@ -5,7 +5,24 @@ const PATTERNS = [
   'cdn.jsdelivr.net/npm/onnxruntime',
   'cdn.jsdelivr.net/npm/tesseract'
 ];
+// 每次启动都强制检查更新
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    Promise.all([
+      self.clients.claim(),
+      // 清除所有旧版本的 cache
+      caches.keys().then(names => Promise.all(
+        names.filter(n => n !== CACHE).map(n => caches.delete(n))
+      ))
+    ])
+  );
+});
 
+// 主线程发消息时，让 SW 立即更新
+self.addEventListener('message', e => {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
+});
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', e => {

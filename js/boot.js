@@ -171,8 +171,33 @@ document.querySelectorAll('.nav button').forEach(btn => {
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').then(reg => {
       console.log('[SW] 已注册');
+      // 每次打开检查更新
+      reg.update().catch(() => {});
+      // 监听更新
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // 有新版本，提示用户
+            console.log('[SW] 检测到新版本');
+            if (confirm('检测到新版本，是否立即刷新页面？')) {
+              newWorker.postMessage('SKIP_WAITING');
+              location.reload();
+            }
+          }
+        });
+      });
     }).catch(err => {
       console.warn('[SW] 注册失败：', err.message);
+    });
+
+    // 监听 SW 控制变化 → 自动刷新
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
     });
   }
     // 恢复滚动位置
