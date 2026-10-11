@@ -430,6 +430,17 @@ function renderSettings(view) {
           前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" style="color:var(--primary)">platform.deepseek.com</a> 获取
         </div>
 
+        <label style="margin-top:12px;font-size:12.5px">默认模型</label>
+        <select id="aiModelSelect" class="input" style="font-size:13px">
+          <option value="deepseek-chat" ${getAiModel() === 'deepseek-chat' ? 'selected' : ''}>DeepSeek-Chat（快速）</option>
+          <option value="deepseek-reasoner" ${getAiModel() === 'deepseek-reasoner' ? 'selected' : ''}>DeepSeek-Reasoner（深度推理）</option>
+        </select>
+
+        <label style="display:inline-flex;align-items:center;gap:6px;margin-top:12px;font-size:12.5px;cursor:pointer">
+          <input type="checkbox" id="defaultThinkingChk" ${getDefaultThinking() ? 'checked' : ''} style="cursor:pointer">
+          分析时默认开启"深度思考"
+        </label>
+
         <div class="actions" style="margin-top:12px">
           <button class="btn primary sm" id="saveKeyBtn">保存</button>
           ${hasKey ? '<button class="btn ghost sm" id="clearKeyBtn">清除</button>' : ''}
@@ -673,6 +684,17 @@ function renderSettings(view) {
 
   const elBack = view.querySelector('#backBtn');
   if (elBack) elBack.addEventListener('click', goBack);
+
+  const modelSel = view.querySelector('#aiModelSelect');
+  if (modelSel) modelSel.addEventListener('change', e => {
+    setAiModel(e.target.value);
+    showToast('模型已切换为 ' + e.target.value);
+  });
+  const thinkChk = view.querySelector('#defaultThinkingChk');
+  if (thinkChk) thinkChk.addEventListener('change', e => {
+    setDefaultThinking(e.target.checked);
+    showToast(e.target.checked ? '已默认开启深度思考' : '已关闭默认深度思考');
+  });
 
   const elSaveKey = view.querySelector('#saveKeyBtn');
   const elApiKey = view.querySelector('#apiKeyInput');
@@ -2164,7 +2186,12 @@ function renderBrowseDetail(view) {
         <div class="empty-icon">✨</div>
         <div class="empty-title">让 AI 深入分析这道题</div>
         <div class="empty-desc">AI 会讲清：核心矛盾、每个选项的对错根本原因、更快的解题路径、同类题的通用方法。</div>
-        <div class="actions" style="justify-content:center;margin-top:12px">
+        <div class="actions" style="justify-content:center;margin-top:16px;gap:10px;flex-wrap:wrap;align-items:center">
+          <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理，更准但更慢">
+            <span class="icon">🧠</span>
+            <span class="label">深度思考</span>
+            <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+          </button>
           <button class="btn primary" id="gen-analysis" ${g.analysis ? 'disabled' : ''}>
             ${g.analysis ? '<span class="spinner"></span> 分析中…' : '开始分析'}
           </button>
@@ -2173,7 +2200,18 @@ function renderBrowseDetail(view) {
     `;
   } else {
 
-    // 核心洞察
+  // 思维链（深度思考时显示）
+    if (an.reasoning) {
+      html += `
+        <details style="margin-top:12px;background:var(--surface-2);border-radius:10px;overflow:hidden">
+          <summary style="padding:10px 14px;cursor:pointer;font-size:12.5px;font-weight:700;color:var(--text-2);list-style:none">
+            🧠 查看思维链（AI 的推理过程）
+          </summary>
+          <div style="padding:0 14px 14px;font-size:12.5px;line-height:1.8;color:var(--text-2);white-space:pre-wrap;border-top:1px solid var(--border);padding-top:12px">${esc(an.reasoning)}</div>
+        </details>
+      `;
+    }
+  // 核心洞察
   if (an.coreIdea) {
       html += `
         <div class="ai-block" style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.08));border-color:rgba(99,102,241,0.15)">
@@ -2244,7 +2282,7 @@ function renderBrowseDetail(view) {
       html += `
         <div class="ai-block" style="background:linear-gradient(135deg,rgba(220,38,38,0.05),rgba(239,68,68,0.05));border-color:rgba(220,38,38,0.15)">
           <div class="ai-block-head" style="color:var(--danger)">
-            <span>⚠️</span><span>最容易踩的坑</span>
+            <span>⚠️</span><span>易错点</span>
           </div>
           <div class="ai-block-body">${esc(an.easyMistake)}</div>
         </div>
@@ -2256,7 +2294,7 @@ function renderBrowseDetail(view) {
       html += `
         <div class="ai-block" style="background:linear-gradient(135deg,rgba(22,163,74,0.05),rgba(101,163,13,0.05));border-color:rgba(22,163,74,0.15)">
           <div class="ai-block-head" style="color:var(--success)">
-            <span>⚡</span><span>更本质 / 更快的路径</span>
+            <span>⚡</span><span>更好的解法</span>
           </div>
           <div class="ai-block-body">${esc(an.betterSolution)}</div>
         </div>
@@ -2268,7 +2306,7 @@ function renderBrowseDetail(view) {
       html += `
         <div class="ai-block" style="background:linear-gradient(135deg,rgba(37,99,235,0.06),rgba(59,130,246,0.04));border-color:rgba(37,99,235,0.15)">
           <div class="ai-block-head" style="color:var(--primary)">
-            <span>🧭</span><span>下次遇到同类题怎么做</span>
+            <span>🧭</span><span>这类问题应该如何思考</span>
           </div>
           <div class="ai-block-body">${esc(an.generalTip)}</div>
         </div>
@@ -2276,7 +2314,12 @@ function renderBrowseDetail(view) {
     }
 
   html += `
-      <div class="actions" style="margin-top:14px">
+      <div class="actions" style="margin-top:14px;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理">
+          <span class="icon">🧠</span>
+          <span class="label">深度思考</span>
+          <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+        </button>
         <button class="btn ghost sm" id="regen-analysis">重新分析</button>
       </div>
     `;
@@ -2314,7 +2357,12 @@ function renderBrowseDetail(view) {
         <div class="empty-icon">🎯</div>
         <div class="empty-title">生成同类练习题</div>
         <div class="empty-desc">AI 会根据当前题目的题型和知识点，出 1-5 道思路相近的题目。</div>
-        <div class="actions" style="justify-content:center;margin-top:12px">
+        <div class="actions" style="justify-content:center;margin-top:14px;gap:10px;flex-wrap:wrap;align-items:center">
+          <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理，出的题更有针对性">
+            <span class="icon">🧠</span>
+            <span class="label">深度思考</span>
+            <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+          </button>
           <button class="btn primary" id="gen-similar" ${g.similar ? 'disabled' : ''}>
             ${g.similar ? '<span class="spinner"></span> 生成中…' : '生成同类题'}
           </button>
@@ -2355,9 +2403,16 @@ function renderBrowseDetail(view) {
       `;
     }).join('');
     html += `
-      <div class="actions" style="margin-top:12px">
-        <button class="btn ghost sm" id="regen-similar">换一批</button>
-        <button class="btn sm" id="save-similar">把答错的存入错题库</button>
+      <div class="actions" style="margin-top:12px;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理">
+          <span class="icon">🧠</span>
+          <span class="label">深度思考</span>
+          <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn ghost sm" id="regen-similar">换一批</button>
+          <button class="btn sm" id="save-similar">把答错的存入错题库</button>
+        </div>
       </div>
     `;
   }
@@ -2375,6 +2430,7 @@ function renderBrowseDetail(view) {
     renderView();
     persistBrowseState();
   });
+
     /* 来源快速编辑 */
   const sourceInput = view.querySelector('#detail-source-input');
   if (sourceInput) {
@@ -2515,6 +2571,7 @@ function renderBrowseDetail(view) {
       }
     });
   }
+
 
   const saveSim = view.querySelector('#save-similar');
   if (saveSim) saveSim.addEventListener('click', async () => {
@@ -3327,44 +3384,30 @@ async function generateAnalysis(q, force = false) {
 
   try {
     const apiKey = getApiKey();
+    // 读取当前是否开启深度思考（来自界面复选框）
+    const useThinking = getSessionThinking();
+    // 深度思考 → 使用 reasoner 模型
+    const model = useThinking ? 'deepseek-reasoner' : getAiModel();
+
     const sys = `你是行测命题分析师，擅长把一道题讲透。用户给你一道行测题，请做深入分析。
 
 返回 JSON：
 {
-  "coreIdea": "这道题最核心的一句话。20字以内，抓住关键矛盾",
+  "coreIdea": "这道题的本质，考察什么内容。50字以内，抓住关键矛盾",
   "keyPoints": [
-    {
-      "text": "题干中的关键片段，必须与题干原文完全一致，不能改一个字",
-      "reason": "为什么这段是破题题眼，30-50字"
-    }
+    { "text": "题干中关键片段，必须与原文一致", "reason": "为什么是破题题眼，30-50字" }
   ],
-  "breakthrough": "解题第一步应该抓什么？30-60字。具体说清看哪里、想什么",
+  "breakthrough": "解题的突破口在什么地方？30-60字",
   "optionAnalysis": [
-    { "label": "A", "type": "right|wrong", "why": "选它/不选它的根本原因，30-50字" }
+    { "label": "A", "type": "right|wrong", "why": "选/不选的根本原因，30-50字" }
   ],
-  "easyMistake": "最常见的错误思路是什么？为什么会掉坑？60-100字",
-  "betterSolution": "有没有更本质或更快的分析方法？60-100字",
-  "generalTip": "下次遇到同类题，通用的思考步骤是什么？分2-3步写，50-80字"
+  "easyMistake": "这道题的易错点是什么，60-100字",
+  "betterSolution": "有没有其他更好的分析方法，60-150字",
+  "generalTip": "这类别题目应该如何快速判断考什么内容，如何开始思考，100-200字"
 }
 
-【keyPoints 关键要求】
-1. **必须逐字复制题干中的原句片段**（连续的一段文字），不能改写、不能省略标点。
-2. 提取 2-4 个片段，是"看到就能秒懂"的关键信息。例如：
-   - 逻辑填空：起呼应作用的词、转折词、"相反""类似"等提示词
-   - 主旨概括：主题词、转折后的核心句、结论句
-   - 意图判断：问题描述、对策句、"意在""想表达"
-   - 数量关系：关键数据、"是...倍""比...多""至少/最多"
-   - 资料分析：时间限定词、单位、"同比/环比""增长/下降"
-3. 每个片段不宜过长，一般 4-20 个字。
-4. 如果整段都很关键，优先选最短的、能代表核心逻辑的那一段。
-5. 如果实在找不出，keyPoints 返回空数组 []。
-
-其他规则：
-- 不要复述题干，直接给分析。
-- optionAnalysis 必须逐项分析，不能跳过。
-- betterSolution 优先给"换个角度秒杀"或"更稳的通用方法"。
-- generalTip 要具体到"看什么→判断什么→选什么"。
-- 只返回 JSON，不要 markdown 代码块。`;
+【keyPoints 要求】逐字复制题干原文片段，2-4 个。
+【其他要求】不要复述题干，直接给分析。只返回 JSON。`;
 
     const user = `模块：${q.module}
 题型：${q.type}
@@ -3378,19 +3421,30 @@ D. ${q.options[3]}
 正确答案：${String.fromCharCode(65 + q.correctIdx)}. ${q.options[q.correctIdx]}
 ${q.originalExplanation ? '原解析：' + q.originalExplanation : ''}`;
 
+    const body = {
+      model,
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: user }]
+    };
+    // chat 模型支持严格 JSON，reasoner 不支持，用 prompt 引导
+    if (model === 'deepseek-chat') {
+      body.response_format = { type: 'json_object' };
+      body.temperature = 0.4;
+    }
+
     const res = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
-        response_format: { type: 'json_object' },
-        temperature: 0.4
-      })
+      body: JSON.stringify(body)
     });
-    if (!res.ok) throw new Error('API 请求失败 (' + res.status + ')');
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`API 失败 (${res.status})：${t.slice(0, 120)}`);
+    }
     const data = await res.json();
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    const msg = data.choices?.[0]?.message || {};
+    const raw = msg.content || '';
+    const reasoning = msg.reasoning_content || '';
+    const parsed = robustParseJSON(raw);
 
     q.aiAnalysis = {
       coreIdea: String(parsed.coreIdea || '').trim(),
@@ -3407,9 +3461,10 @@ ${q.originalExplanation ? '原解析：' + q.originalExplanation : ''}`;
       easyMistake: String(parsed.easyMistake || '').trim(),
       betterSolution: String(parsed.betterSolution || '').trim(),
       generalTip: String(parsed.generalTip || '').trim(),
+      reasoning: reasoning,          // 保存思维链
+      thinkingUsed: useThinking,     // 标记
       generatedAt: Date.now()
     };
-    // 兼容旧字段
     q.aiEasyMistake = q.aiAnalysis.easyMistake;
     q.aiBetterSolution = q.aiAnalysis.betterSolution;
 
@@ -3423,6 +3478,17 @@ ${q.originalExplanation ? '原解析：' + q.originalExplanation : ''}`;
   }
 }
 
+/* 容错 JSON 解析：直接解析 / 剥 markdown / 提取大括号 */
+function robustParseJSON(raw) {
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch {}
+  const mdMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (mdMatch) { try { return JSON.parse(mdMatch[1].trim()); } catch {} }
+  const braceMatch = raw.match(/\{[\s\S]*\}/);
+  if (braceMatch) { try { return JSON.parse(braceMatch[0]); } catch {} }
+  return {};
+}
+
 
 /* ---- AI：生成举一反三 ---- */
 async function generateSimilar(q) {
@@ -3433,7 +3499,8 @@ async function generateSimilar(q) {
 
   try {
     const apiKey = getApiKey();
-    const result = await tryGenerateSimilar(apiKey, q);
+    const useThinking = getSessionThinking();
+    const result = await tryGenerateSimilar(apiKey, q, 1, useThinking);
     if (!result.length) throw new Error('AI 未能生成有效题目，请重试');
     b.detail.similar = result;
     b.generating.similar = false;
@@ -3446,13 +3513,13 @@ async function generateSimilar(q) {
 }
 
 async function tryGenerateSimilar(apiKey, q, attempt = 1) {
-  const sys = `你是行测出题人。用户给你一道题，请出**1-5 道**思路相同或知识点相同的题目。
+  const sys = `你是行测出题人。用户给你一道题，请出**1-5 道**考察知识点相同的题目。
 
 返回 JSON：
 {
   "items": [
     {
-      "stem": "题干，横线用 ____ 表示。语句排序题保留 (1)(2)(3) 格式",
+      "stem": "题干，横线用 ____ 表示。语句排序题保留①②③格式",
       "options": ["A选项","B选项","C选项","D选项"],
       "correctIdx": 0,
       "explanation": "本题解析，60-120字。说清为什么这么选",
@@ -3467,8 +3534,9 @@ async function tryGenerateSimilar(apiKey, q, attempt = 1) {
 3. **难度相当**：与原题难度持平或略高。
 4. **每道题必须 4 个选项**，且**有且仅有一个**正确答案。
 5. **选项要有区分度**：错误选项必须看起来像对的，不能是明显错误的。
-6. 如果完全无法出同类题（题目太偏、知识点不清晰），返回 {"items":[]}。
-7. 只返回 JSON，不要 markdown 代码块。`;
+6. **文段脉络不要照搬**：题文段思路不要与原题相同，要有新意。选项中知识点的顺序不要与原题一致。
+7. 如果完全无法出同类题（题目太偏、知识点不清晰），返回 {"items":[]}。
+8. 只返回 JSON，不要 markdown 代码块。`;
 
   const user = `模块：${q.module}
 题型：${q.type}
@@ -3477,19 +3545,25 @@ async function tryGenerateSimilar(apiKey, q, attempt = 1) {
 选项：A.${q.options[0]} B.${q.options[1]} C.${q.options[2]} D.${q.options[3]}
 正确答案：${String.fromCharCode(65 + q.correctIdx)}`;
 
+  const model = useThinking ? 'deepseek-reasoner' : getAiModel();
+  const body = {
+    model,
+    messages: [{ role: 'system', content: sys }, { role: 'user', content: user }]
+  };
+  if (model === 'deepseek-chat') {
+    body.response_format = { type: 'json_object' };
+    body.temperature = attempt === 1 ? 0.7 : 0.5;
+  }
+
   const res = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
-      response_format: { type: 'json_object' },
-      temperature: attempt === 1 ? 0.7 : 0.5
-    })
+    body: JSON.stringify(body)
   });
   if (!res.ok) throw new Error('API 请求失败 (' + res.status + ')');
   const data = await res.json();
-  const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+  const raw = data.choices?.[0]?.message?.content || '{}';
+  const parsed = robustParseJSON(raw);
   const items = Array.isArray(parsed.items) ? parsed.items : [];
 
   const valid = items
@@ -3500,7 +3574,6 @@ async function tryGenerateSimilar(apiKey, q, attempt = 1) {
       if (opts.length !== 4 || opts.some(o => !o)) return null;
       const ci = Number(it.correctIdx);
       if (!Number.isInteger(ci) || ci < 0 || ci > 3) return null;
-      // 检查选项不重复
       if (new Set(opts).size !== 4) return null;
       return {
         stem: String(it.stem).trim(),
@@ -3516,10 +3589,10 @@ async function tryGenerateSimilar(apiKey, q, attempt = 1) {
     .filter(Boolean)
     .slice(0, 5);
 
-  // 一次都没出 → 重试一次
+  // 一次都没出 → 重试一次（保持相同的 thinking 设置）
   if (!valid.length && attempt === 1) {
     console.log('[举一反三] 首次生成失败，重试…');
-    return tryGenerateSimilar(apiKey, q, 2);
+    return tryGenerateSimilar(apiKey, q, 2, useThinking);
   }
   return valid;
 }
@@ -3823,7 +3896,12 @@ function renderReportBody(scope) {
           <span>🎯 <b>${scope.freq.length}</b> 个知识点</span>
           <span>⏱ 约 15 秒</span>
         </div>
-        <div class="actions" style="justify-content:center;margin-top:18px">
+        <div class="actions" style="justify-content:center;margin-top:18px;gap:10px;flex-wrap:wrap;align-items:center">
+          <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理">
+            <span class="icon">🧠</span>
+            <span class="label">深度思考</span>
+            <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+          </button>
           <button class="btn primary" id="gen-report" ${size === 0 ? 'disabled' : ''}>
             ${size === 0 ? '当前范围无数据' : '生成报告'}
           </button>
@@ -3845,6 +3923,18 @@ function renderReportBody(scope) {
   }[r.level || 'all'] || '深度分析';
 
   let html = '';
+
+    // 思维链
+  if (r.reasoning) {
+    html += `
+      <details style="margin-bottom:20px;background:var(--surface-2);border-radius:10px;overflow:hidden">
+        <summary style="padding:12px 16px;cursor:pointer;font-size:12.5px;font-weight:700;color:var(--text-2);list-style:none">
+          🧠 查看 AI 的推理过程
+        </summary>
+        <div style="padding:0 16px 16px;font-size:12.5px;line-height:1.8;color:var(--text-2);white-space:pre-wrap;border-top:1px solid var(--border);padding-top:12px">${esc(r.reasoning)}</div>
+      </details>
+    `;
+  }
 
   /* 诊断结论 */
   if (r.headline) {
@@ -3956,12 +4046,19 @@ function renderReportBody(scope) {
   }
 
   html += `
-    <div class="report-footer">
+    <div class="report-footer" style="flex-wrap:wrap;gap:10px">
       <div class="report-footer-meta">
         <span class="dot-live"></span>
-        <span>${ageText} · 缓存 14 天</span>
+        <span>${ageText} · 缓存 14 天${r.thinkingUsed ? ' · 🧠 已深度思考' : ''}</span>
       </div>
-      <button class="btn ghost sm" id="regen-report">重新生成</button>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理">
+          <span class="icon">🧠</span>
+          <span class="label">深度思考</span>
+          <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+        </button>
+        <button class="btn ghost sm" id="regen-report">重新生成</button>
+      </div>
     </div>
   `;
 
@@ -4010,6 +4107,8 @@ function bindAnalysisEvents(view, scope) {
   });
 }
 
+
+
 /* ---- 切换范围 ---- */
 async function navToAnalysis(module, type, kp) {
   const a = state.analysis;
@@ -4052,28 +4151,40 @@ async function generateReport() {
     // 按层级选 system prompt
     const sys = buildAnalysisPrompt(level);
 
+    // 读取深度思考设置    
+    const useThinking = getSessionThinking();
+    const model = useThinking ? 'deepseek-reasoner' : getAiModel();
+
+    const body = {
+      model,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: dataPayload }
+      ]
+    };
+    if (model === 'deepseek-chat') {
+      body.response_format = { type: 'json_object' };
+      body.temperature = 0.4;
+    }
+
     const res = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: sys },
-          { role: 'user', content: dataPayload }
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.4
-      })
+      body: JSON.stringify(body)
     });
     if (!res.ok) throw new Error('API 请求失败 (' + res.status + ')');
     const data = await res.json();
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    const msg = data.choices?.[0]?.message || {};
+    const parsed = robustParseJSON(msg.content || '');
+    const reasoning = msg.reasoning_content || '';
 
     const report = {
       _v: 2,
       level,
       scope: { module: a.module, type: a.type, kp: a.kp },
       ...parsed,
+      reasoning,           // 保存思维链
+      thinkingUsed: useThinking,
       generatedAt: Date.now()
     };
 

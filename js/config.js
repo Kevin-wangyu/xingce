@@ -23,6 +23,31 @@ const K_GIST_ID = 'xc_gist_id';
 const K_GIST_TOKEN = 'xc_gist_token';
 const GIST_FILENAME = 'xingce-backup.json';
 const getApiKey = () => localStorage.getItem(K_API_KEY) || '';
+/* ============ AI 模型与深度思考配置 ============ */
+const K_AI_MODEL = 'xc_ai_model';
+const K_DEFAULT_THINKING = 'xc_default_thinking';
+
+function getAiModel() {
+  const m = localStorage.getItem(K_AI_MODEL);
+  return (m === 'deepseek-reasoner') ? 'deepseek-reasoner' : 'deepseek-chat';
+}
+function setAiModel(m) {
+  localStorage.setItem(K_AI_MODEL, m === 'deepseek-reasoner' ? 'deepseek-reasoner' : 'deepseek-chat');
+}
+function getDefaultThinking() {
+  return localStorage.getItem(K_DEFAULT_THINKING) === '1';
+}
+/* 会话级深度思考状态（同一次打开内共享） */
+function getSessionThinking() {
+  const v = localStorage.getItem('xc_session_thinking');
+  return v === null ? getDefaultThinking() : v === '1';
+}
+function setSessionThinking(v) {
+  localStorage.setItem('xc_session_thinking', v ? '1' : '0');
+}
+function setDefaultThinking(v) {
+  localStorage.setItem(K_DEFAULT_THINKING, v ? '1' : '0');
+}
 const setApiKey = k => localStorage.setItem(K_API_KEY, k);
 const getTheme = () => localStorage.getItem(K_THEME) || 'light';
 const applyTheme = t => document.documentElement.setAttribute('data-theme', t);

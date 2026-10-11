@@ -2763,3 +2763,52 @@ details.card.collapsible > .card-body {
   .image-editor-stage { padding: 12px; min-height: 240px; }
   .image-editor-toolbar { padding: 10px 12px; gap: 6px; }
 }
+
+/* ============ 深度思考开关 ============ */
+.thinking-toggle {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 14px 8px 16px; border-radius: 22px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 12.5px; font-weight: 600;
+  cursor: pointer; user-select: none;
+  transition: all .2s cubic-bezier(.4,0,.2,1);
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+.thinking-toggle:hover {
+  border-color: #a5b4fc;
+  color: #6366f1;
+  transform: translateY(-1px);
+}
+.thinking-toggle:active { transform: translateY(0); }
+.thinking-toggle[data-on="1"] {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(99,102,241,0.35);
+}
+.thinking-toggle[data-on="1"]:hover {
+  box-shadow: 0 6px 18px rgba(99,102,241,0.45);
+}
+.thinking-toggle .icon { font-size: 14px; line-height: 1; }
+.thinking-toggle .label { letter-spacing: 0.2px; }
+.thinking-toggle .badge {
+  font-size: 9.5px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  transition: all .2s;
+}
+.thinking-toggle[data-on="1"] .badge {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+[data-theme="dark"] .thinking-toggle .badge {
+  background: rgba(255,255,255,0.06);
+}

@@ -1,3 +1,32 @@
+
+/* ============ 深度思考 toggle：全局事件委托 ============ */
+document.addEventListener('click', (e) => {
+  const toggle = e.target.closest('.thinking-toggle');
+  if (!toggle) return;
+  e.preventDefault();
+
+  const cur = toggle.dataset.on === '1';
+  const next = !cur;
+  setSessionThinking(next);
+
+  // 同步页面上所有 toggle 的外观
+  document.querySelectorAll('.thinking-toggle').forEach(b => {
+    b.dataset.on = next ? '1' : '0';
+    const bd = b.querySelector('.badge');
+    if (bd) bd.textContent = next ? 'ON' : 'OFF';
+  });
+
+  console.log('[深度思考]', next ? 'ON' : 'OFF');
+});
+
+/* 会话级深度思考状态 */
+function getSessionThinking() {
+  const v = localStorage.getItem('xc_session_thinking');
+  return v === null ? getDefaultThinking() : v === '1';
+}
+function setSessionThinking(v) {
+  localStorage.setItem('xc_session_thinking', v ? '1' : '0');
+}
 /* ============ 启动 ============ */
 document.getElementById('themeToggle').addEventListener('click', toggleTheme);
 document.getElementById('settingsBtn').addEventListener('click', openSettings);
