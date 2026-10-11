@@ -523,10 +523,21 @@ function renderSettings(view) {
       </div>
       <div class="setting-row">
         <div class="setting-row-main">
-          <div class="setting-row-title">为旧图生成缩略图</div>
-          <div class="setting-row-desc">为已上传但缺少缩略图的图片生成缩略图，便于同步到手机端查看</div>
+          <div class="setting-row-title">生成缩略图</div>
+          <div class="setting-row-desc">默认只给缺少缩略图的图片生成。勾选下方选项会重做所有缩略图（较慢）</div>
+          <label style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text-2);cursor:pointer">
+            <input type="checkbox" id="forceThumbChk" ${state.ui.forceThumbRegen ? 'checked' : ''} style="cursor:pointer">
+            强制重新生成（覆盖已有缩略图）
+          </label>
         </div>
         <button class="btn sm" id="genThumbsBtn">生成</button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-row-main">
+          <div class="setting-row-title">清理孤立图片</div>
+          <div class="setting-row-desc">删除没有被任何题目引用的图片，释放存储空间</div>
+        </div>
+        <button class="btn sm" id="cleanOrphanBtn">清理</button>
       </div>
       <div class="setting-row">
         <div class="setting-row-main">
@@ -684,6 +695,14 @@ function renderSettings(view) {
     if (!confirm('清理 OCR 缓存？\n\n错题库不受影响。下次识别时会重新下载模型（约需 15 秒）。')) return;
     await clearOcrCache();
   });
+
+  const forceChk = view.querySelector('#forceThumbChk');
+  if (forceChk) {
+    forceChk.addEventListener('change', (e) => {
+      state.ui.forceThumbRegen = !!e.target.checked;
+      console.log('[缩略图] 强制选项已保存到 state:', state.ui.forceThumbRegen);
+    });
+  }
   
   const elGenThumbs = view.querySelector('#genThumbsBtn');
   if (elGenThumbs) elGenThumbs.addEventListener('click', async () => {
@@ -716,7 +735,22 @@ function renderSettings(view) {
     const statsEl = overlay.querySelector('#thumbStats');
 
     try {
-      const force = !!view.querySelector('#forceThumbChk')?.checked;
+      const forceChk = view.querySelector('#forceThumbChk');
+      const force = !!state.ui.forceThumbRegen;
+      console.log('[缩略图] 点击生成，force =', force);
+
+      // 先查一下 images 表里有多少条记录
+      try {
+        const allRecs = await new Promise((resolve, reject) => {
+          const r = db.transaction('images', 'readonly').objectStore('images').getAll();
+          r.onsuccess = () => resolve(r.result || []);
+          r.onerror = () => reject(r.error);
+        });
+        const withBlob = allRecs.filter(x => x.blob).length;
+        const withThumb = allRecs.filter(x => x.thumbnail).length;
+        console.log(`[缩略图] images 表共 ${allRecs.length} 条：有原图 ${withBlob}，有缩略图 ${withThumb}`);
+      } catch (e) { console.warn(e); }
+
       const result = await generateMissingThumbnails((info) => {
         if (info.phase === 'start') {
           if (info.total === 0) {
@@ -736,7 +770,7 @@ function renderSettings(view) {
           barEl.style.width = '100%';
           textEl.textContent = '处理完成';
         }
-      });
+      }, force);
 
       // 完成后 2 秒关闭
       setTimeout(() => {
@@ -746,6 +780,8 @@ function renderSettings(view) {
         } else {
           showToast(`已生成 ${result.done} 张缩略图${result.failed ? '（' + result.failed + ' 张失败）' : ''}`);
         }
+        // 完成后重置勾选，避免下次误触
+        state.ui.forceThumbRegen = false;
         // 如果有成功的，触发同步
         if (result.done > 0 && getGistId() && getGistToken()) {
           setTimeout(() => {
@@ -780,6 +816,62 @@ function renderSettings(view) {
     } catch (e) {
       alert('修复失败：' + e.message);
     }
+  });
+
+  const elCleanOrphan = view.querySelector('#cleanOrphanBtn');
+  if (elCleanOrphan) elCleanOrphan.addEventListener('click', async () => {
+    if (!useIDB) { alert('当前不是 IDB 模式'); return; }
+    if (!confirm('清理没有被任何题目引用的图片？\n\n会同时检查本地 IDB 和云端 Gist。')) return;
+
+    // 收集所有被引用的 imageId
+    const usedIds = new Set();
+    questions.forEach(q => (q.imageIds || []).forEach(id => usedIds.add(id)));
+
+    // 查询所有图片
+    let allImages = [];
+    try {
+      allImages = await new Promise((resolve, reject) => {
+        const r = db.transaction('images', 'readonly').objectStore('images').getAll();
+        r.onsuccess = () => resolve(r.result || []);
+        r.onerror = () => reject(r.error);
+      });
+    } catch (e) { alert('读取失败：' + e.message); return; }
+
+    const orphans = allImages.filter(rec => !usedIds.has(rec.id));
+
+    if (!orphans.length) {
+      showToast('没有孤立图片');
+      return;
+    }
+
+    if (!confirm(`发现 ${orphans.length} 张孤立图片，将删除。\n\n确定继续？`)) return;
+
+    let deleted = 0;
+    for (const rec of orphans) {
+      try {
+        await idbDeleteImage(rec.id);
+        // 清 URL 缓存
+        if (_imageUrlCache.has(rec.id)) {
+          URL.revokeObjectURL(_imageUrlCache.get(rec.id));
+          _imageUrlCache.delete(rec.id);
+        }
+        if (_imageUrlCache.has(rec.id + '_thumb')) {
+          URL.revokeObjectURL(_imageUrlCache.get(rec.id + '_thumb'));
+          _imageUrlCache.delete(rec.id + '_thumb');
+        }
+        deleted++;
+      } catch (e) { console.warn('删除失败：', rec.id, e); }
+    }
+
+    invalidateStorageCache();
+    showToast(`已清理 ${deleted} 张孤立图片`);
+
+    // 触发同步（更新云端 thumbnails）
+    if (getGistId() && getGistToken()) {
+      setTimeout(() => pushToGist().catch(() => {}), 500);
+    }
+
+    renderView();
   });
 
   const importFile = view.querySelector('#importFile');

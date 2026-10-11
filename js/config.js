@@ -82,7 +82,10 @@ const state = {
     sort: 'updatedAt',  // 'updatedAt' | 'createdAt' | 'module'
     filterModule: 'all'
   },
-   analysis: {
+  ui: {
+    forceThumbRegen: false   // 是否强制重新生成缩略图
+  },
+  analysis: {
     module: null,       // null=全部
     type: null,         // null=未进入题型
     kp: null,           // null=未进入知识点

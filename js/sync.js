@@ -28,8 +28,32 @@ async function pullFromGist() {
   try {
     const data = await gistFetch();
     const file = data.files[GIST_FILENAME];
-    if (!file || !file.content) { syncing = false; return; }
-    const remote = JSON.parse(file.content);
+    if (!file) { syncing = false; return; }
+
+    let content = file.content;
+    let sizeHint = file.size || 0;
+
+    // GitHub API 对 >1MB 的文件会截断 content，需要走 raw_url
+    if (file.truncated || !content || (sizeHint && sizeHint > 900 * 1024)) {
+      if (!file.raw_url) throw new Error('Gist 文件被截断，且无 raw_url 可用');
+      console.log(`[同步] 文件过大（${Math.round(sizeHint / 1024)} KB），改用 raw_url 下载`);
+      // raw_url 不带 Authorization（否则 CORS 预检会失败）
+      // secret gist 的 raw_url 用随机 hash，不知道 URL 就拿不到内容
+      const rawRes = await fetch(file.raw_url);
+      if (!rawRes.ok) throw new Error('raw_url 下载失败 ' + rawRes.status);
+      content = await rawRes.text();
+      console.log(`[同步] raw_url 下载完成，${content.length} 字符`);
+    }
+
+    if (!content) { syncing = false; return; }
+
+    let remote;
+    try {
+      remote = JSON.parse(content);
+    } catch (parseErr) {
+      throw new Error('JSON 解析失败（内容 ' + content.length + ' 字符）：' + parseErr.message);
+    }
+
     await mergeRemote(remote);
     lastSyncedAt = Date.now();
     console.log('[同步] PULL 完成');
@@ -63,15 +87,22 @@ async function pushToGist() {
       } catch (e) { console.warn('[同步] 读取缩略图失败：', imgId, e); }
     }
 
+    const contentStr = JSON.stringify({
+      questions,
+      deletedIds,
+      thumbnails,
+      lastSyncedAt: Date.now()
+    }, null, 2);
+
+    const sizeKB = Math.round(contentStr.length / 1024);
+    if (sizeKB > 800) {
+      console.warn(`[同步] 数据已达 ${sizeKB} KB，接近 Gist 1MB 的截断阈值`);
+    }
+
     const payload = {
       files: {
         [GIST_FILENAME]: {
-          content: JSON.stringify({
-            questions,
-            deletedIds,
-            thumbnails,   // ← 新增
-            lastSyncedAt: Date.now()
-          }, null, 2)
+          content: contentStr
         }
       }
     };
