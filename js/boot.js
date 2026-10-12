@@ -167,6 +167,22 @@ document.querySelectorAll('.nav button').forEach(btn => {
     } catch {}
   }
 
+    // 一次性清理旧格式 AI 分析（字段结构变了，旧分析可能是顺着答案写的）
+  let clearedAnalyses = 0;
+  questions.forEach(q => {
+    if (q.aiAnalysis && !q.aiAnalysis.myAnswerIdx) {
+      q.aiAnalysis = null;
+      q.aiEasyMistake = '';
+      q.aiBetterSolution = '';
+      dirtyQ.add(q.id);
+      clearedAnalyses++;
+    }
+  });
+  if (clearedAnalyses) {
+    console.log(`[清理] 清空 ${clearedAnalyses} 道题的旧 AI 分析`);
+    scheduleFlush();
+  }
+
   renderView();
 
   // 页面打开后 2 秒，自动 PULL 一次

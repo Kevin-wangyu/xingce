@@ -2261,7 +2261,7 @@ function renderBrowseDetail(view) {
   } else {
 
   // 思维链（深度思考时显示）
-    if (an.reasoning) {
+  if (an.reasoning) {
       html += `
         <details style="margin-top:12px;background:var(--surface-2);border-radius:10px;overflow:hidden">
           <summary style="padding:10px 14px;cursor:pointer;font-size:12.5px;font-weight:700;color:var(--text-2);list-style:none">
@@ -2270,7 +2270,51 @@ function renderBrowseDetail(view) {
           <div style="padding:0 14px 14px;font-size:12.5px;line-height:1.8;color:var(--text-2);white-space:pre-wrap;border-top:1px solid var(--border);padding-top:12px">${esc(an.reasoning)}</div>
         </details>
       `;
+  }
+
+  // 答案对比提示
+  if (typeof an.myAnswerIdx === 'number' && an.myAnswerIdx >= 0) {
+    const myLetter = String.fromCharCode(65 + an.myAnswerIdx);
+    const userLetter = String.fromCharCode(65 + q.correctIdx);
+    const isMismatch = an.myAnswerIdx !== q.correctIdx;
+    const confLabel = an.myAnswerConfidence === 'high' ? '高' : an.myAnswerConfidence === 'low' ? '低' : '中';
+
+    if (isMismatch) {
+      html += `
+        <div class="ai-block" style="background:linear-gradient(135deg,rgba(220,38,38,0.08),rgba(239,68,68,0.04));border-color:rgba(220,38,38,0.3);border-left:3px solid var(--danger)">
+          <div class="ai-block-head" style="color:var(--danger)">
+            <span>⚠️</span><span>答案不一致 · 请核对</span>
+          </div>
+          <div style="font-size:13px;line-height:1.75;color:var(--text)">
+            AI 独立作答为 <b style="color:var(--danger);font-size:15px">${myLetter}</b>，
+            你录入的是 <b style="color:var(--text-2);font-size:15px">${userLetter}</b>
+            <span style="font-size:11.5px;color:var(--text-3);margin-left:6px">（AI 把握：${confLabel}）</span>
+          </div>
+          <div style="font-size:12.5px;line-height:1.75;color:var(--text-2);margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">
+            ${an.optionAnalysis && an.optionAnalysis.length
+              ? `AI 认为 <b>${myLetter}</b> 正确。选项 ${myLetter} 的解析：${esc((an.optionAnalysis.find(o => o.label === myLetter) || {}).why || '')}`
+              : ''}
+          </div>
+          <div style="font-size:11.5px;color:var(--text-3);margin-top:8px">
+            💡 你可能录错了答案，或 AI 判断有误。建议重新做一遍这道题，核对后再修改。
+          </div>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="ai-block" style="background:linear-gradient(135deg,rgba(22,163,74,0.06),rgba(101,163,13,0.03));border-color:rgba(22,163,74,0.2);border-left:3px solid var(--success)">
+          <div class="ai-block-head" style="color:var(--success)">
+            <span>✓</span><span>答案一致</span>
+          </div>
+          <div style="font-size:12.5px;line-height:1.7;color:var(--text-2)">
+            AI 独立作答也是 <b style="color:var(--success)">${myLetter}</b>
+            <span style="font-size:11.5px;color:var(--text-3);margin-left:6px">（把握：${confLabel}）</span>
+          </div>
+        </div>
+      `;
     }
+  }
+
   // 核心洞察
   if (an.coreIdea) {
       html += `
@@ -3418,7 +3462,9 @@ function renderBrowseEdit(view, q) {
     state.browse.editDraft = null;
 
     try {
-      const stemChanged = stem !== q.stem;
+      const oldCorrectIdx = q.correctIdx;
+      const stemChanged = stem.trim() !== (q.stem || '').trim();
+      const answerChanged = correctIdx !== oldCorrectIdx;
       q.stem = stem;
       q.options = options;
       q.correctIdx = correctIdx;
@@ -3430,7 +3476,7 @@ function renderBrowseEdit(view, q) {
       q.stars = d.stars || 0;
       q.imageIds = (d.imageIds || []).slice();
 
-      if (stemChanged) {
+      if (stemChanged || answerChanged) {
         q.aiEasyMistake = '';
         q.aiBetterSolution = '';
         q.aiAnalysis = null;
@@ -3472,10 +3518,17 @@ async function generateAnalysis(q, force = false) {
     // 深度思考 → 使用 reasoner 模型
     const model = useThinking ? 'deepseek-reasoner' : getAiModel();
 
-    const sys = `你是行测命题分析师，擅长把一道题讲透。用户给你一道行测题，请做深入分析。
+    const sys = `你是行测导师。用户会给你一道题（题干 + 选项），请你**独立完成这道题**，并给出深入分析。
+
+【最高原则】
+- 你只能看到题干和选项，**没有任何答案提示**。
+- 你必须自己推理出唯一正确答案。
 
 返回 JSON：
 {
+  "myAnswer": "A|B|C|D",            // 你推理出的答案
+  "confidence": "high|medium|low",  // 你对自己判断的把握
+
   "coreIdea": "这道题的本质，考察什么内容。50字以内，抓住关键矛盾",
   "keyPoints": [
     { "text": "题干中关键片段，必须与原文一致", "reason": "为什么是破题题眼，30-50字" }
@@ -3489,8 +3542,10 @@ async function generateAnalysis(q, force = false) {
   "generalTip": "这类别题目应该如何快速判断考什么内容，如何开始思考，100-200字"
 }
 
-【keyPoints 要求】逐字复制题干原文片段，2-4 个。
-【其他要求】不要复述题干，直接给分析。只返回 JSON。`;
+【要求】
+1. optionAnalysis 中，type 必须与你自己判断的 myAnswer 一致（myAnswer 那个选项标 right，其他标 wrong）。
+2. keyPoints 逐字复制题干原文片段，2-4 个。
+3. 不要复述题干，只返回 JSON。`;
 
     const user = `模块：${q.module}
 题型：${q.type}
@@ -3500,9 +3555,7 @@ async function generateAnalysis(q, force = false) {
 A. ${q.options[0]}
 B. ${q.options[1]}
 C. ${q.options[2]}
-D. ${q.options[3]}
-正确答案：${String.fromCharCode(65 + q.correctIdx)}. ${q.options[q.correctIdx]}
-${q.originalExplanation ? '原解析：' + q.originalExplanation : ''}`;
+D. ${q.options[3]}`;
 
     const body = {
       model,
@@ -3529,7 +3582,17 @@ ${q.originalExplanation ? '原解析：' + q.originalExplanation : ''}`;
     const reasoning = msg.reasoning_content || '';
     const parsed = robustParseJSON(raw);
 
+    // 解析 AI 独立判断的答案
+    const myAnsRaw = String(parsed.myAnswer || '').trim().toUpperCase().slice(0, 1);
+    const myAnswerIdx = ['A','B','C','D'].includes(myAnsRaw) ? myAnsRaw.charCodeAt(0) - 65 : -1;
+    // 前端对比（AI 不知道答案，所以由我们对比）
+    const mismatch = myAnswerIdx >= 0 && myAnswerIdx !== q.correctIdx;
+
     q.aiAnalysis = {
+      myAnswerIdx,
+      myAnswerConfidence: ['high','medium','low'].includes(parsed.confidence) ? parsed.confidence : 'medium',
+      answerMismatch: mismatch,   // 前端计算
+
       coreIdea: String(parsed.coreIdea || '').trim(),
       keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints.map(k => ({
         text: String(k.text || '').trim(),
@@ -3544,10 +3607,11 @@ ${q.originalExplanation ? '原解析：' + q.originalExplanation : ''}`;
       easyMistake: String(parsed.easyMistake || '').trim(),
       betterSolution: String(parsed.betterSolution || '').trim(),
       generalTip: String(parsed.generalTip || '').trim(),
-      reasoning: reasoning,          // 保存思维链
-      thinkingUsed: useThinking,     // 标记
+      reasoning: reasoning,
+      thinkingUsed: useThinking,
       generatedAt: Date.now()
     };
+
     q.aiEasyMistake = q.aiAnalysis.easyMistake;
     q.aiBetterSolution = q.aiAnalysis.betterSolution;
 
