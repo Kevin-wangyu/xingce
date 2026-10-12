@@ -474,33 +474,12 @@ document.addEventListener('paste', e => {
   if (!files.length) return;
   e.preventDefault();
 
-  const s2 = state.collect;
-  state.collect.editedOcrText = '';
-
-  Promise.all(files.map(async f => {
-    const dataUrl = await new Promise(res => {
-      const r = new FileReader();
-      r.onload = ev => res(ev.target.result || '');
-      r.onerror = () => res('');
-      r.readAsDataURL(f);
-    });
-    let imageId = '';
-    if (useIDB && dataUrl) {
-      try {
-        const thumbBlob = await generateThumbnail(f);
-        imageId = await idbPutImage(f, thumbBlob);
-      } catch (err) { console.warn('图片存储失败：', err); }
-    }
-    return { id: uid(), file: f, dataUrl, imageId, ocrText: '', status: 'pending', error: '' };
-  })).then(items2 => {
-    for (const it of items2) {
-      s2.images.push(it);
-      appendImageThumb(it);
-    }
-    updateImagesCountLabel();
-    updateCollectFooter();
-    setTimeout(() => processAllImages(), 30);
-  });
+  // 复用 handleFiles 的逻辑，skipEditor=true 表示粘贴不弹编辑器
+  if (typeof window._handleFilesForPaste === 'function') {
+    window._handleFilesForPaste(files);
+  } else {
+    console.warn('[粘贴] handleFiles 未就绪');
+  }
 });
 
 /* ============ 全局快捷键 ============ */

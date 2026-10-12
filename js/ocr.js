@@ -632,16 +632,16 @@ function bindCollectEvents() {
   const drop = document.getElementById('dropZone');
   const fileInput = document.getElementById('ocrFile');
 
-  const handleFiles = async (files) => {
+  const handleFiles = async (files, skipEditor = false) => {
     const s2 = state.collect;
     const arr = Array.from(files).filter(f => f && f.type.startsWith('image/'));
     if (!arr.length) return;
 
-    // 单张 → 打开编辑器；多张 → 直接使用
+    // 单张 + 允许编辑 → 打开编辑器；否则直接使用
     let finalFiles = arr;
-    if (arr.length === 1) {
+    if (!skipEditor && arr.length === 1) {
       const edited = await openImageEditor(arr[0]);
-      if (edited === null) return; // 用户取消
+      if (edited === null) return;
       finalFiles = [edited];
     }
 
@@ -669,6 +669,8 @@ function bindCollectEvents() {
     updateCollectFooter();
     setTimeout(() => processAllImages(), 30);
   };
+    // 暴露给全局粘贴事件用
+  window._handleFilesForPaste = (files) => handleFiles(files, true);
 
 
   if (drop && fileInput) {
@@ -677,10 +679,10 @@ function bindCollectEvents() {
     drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
     drop.addEventListener('drop', e => {
       e.preventDefault(); drop.classList.remove('dragover');
-      handleFiles(e.dataTransfer.files);
+      handleFiles(e.dataTransfer.files, false);  // 拖拽 → 开编辑器
     });
     fileInput.addEventListener('change', e => {
-      handleFiles(e.target.files);
+      handleFiles(e.target.files, false);  // 点击上传 → 开编辑器
       fileInput.value = '';
     });
   }
@@ -739,6 +741,8 @@ function bindCollectEvents() {
     state.collect.images = [];
     state.collect.parsedList = [];
     state.collect.editedOcrText = '';
+    state.collect.sourceInput = '';
+    state.collect.busy = false;
     renderView();
   });
 
@@ -969,10 +973,20 @@ function bindCollectEvents() {
     });
 
     const finalize = (savedCount, skippedCount, overwrittenCount) => {
+      // 彻底清空本次识别的所有状态
       s.images = [];
       s.parsedList = [];
+      s.editedOcrText = '';
+      s.sourceInput = '';
       s.busy = false;
+      s._ocrRunning = false;
+
       renderView();
+      // 保存后滚动到顶部
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+
       let tip = `已保存 ${savedCount} 题`;
       if (overwrittenCount) tip += ` · 覆盖 ${overwrittenCount} 题`;
       if (skippedCount) tip += ` · 跳过 ${skippedCount} 题`;

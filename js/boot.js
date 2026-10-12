@@ -9,24 +9,37 @@ document.addEventListener('click', (e) => {
   const next = !cur;
   setSessionThinking(next);
 
-  // 同步页面上所有 toggle 的外观
+  // 同步所有 toggle 的外观
   document.querySelectorAll('.thinking-toggle').forEach(b => {
     b.dataset.on = next ? '1' : '0';
     const bd = b.querySelector('.badge');
     if (bd) bd.textContent = next ? 'ON' : 'OFF';
   });
 
+  // 同步设置页复选框（如果存在）
+  const chk = document.getElementById('defaultThinkingChk');
+  if (chk) chk.checked = next;
+
   console.log('[深度思考]', next ? 'ON' : 'OFF');
 });
+/* 会话级状态（浏览器打开期间，随时可切换） */
+/* 设置页的"默认"偏好（下次打开时的初始值） */
+function getDefaultThinking() {
+  return localStorage.getItem(K_DEFAULT_THINKING) === '1';
+}
+function setDefaultThinking(v) {
+  localStorage.setItem(K_DEFAULT_THINKING, v ? '1' : '0');
+}
 
-/* 会话级深度思考状态 */
+/* 深度思考：单一全局状态，勾选/点击都立即生效并持久化 */
 function getSessionThinking() {
-  const v = localStorage.getItem('xc_session_thinking');
-  return v === null ? getDefaultThinking() : v === '1';
+  return getDefaultThinking();
 }
 function setSessionThinking(v) {
-  localStorage.setItem('xc_session_thinking', v ? '1' : '0');
+  setDefaultThinking(v);
 }
+
+
 /* ============ 启动 ============ */
 document.getElementById('themeToggle').addEventListener('click', toggleTheme);
 document.getElementById('settingsBtn').addEventListener('click', openSettings);
@@ -276,6 +289,32 @@ function showWelcome() {
   });
   setTimeout(close, 15000); // 15 秒后自动消失
 }
+
+/* ============ 返回顶部按钮 ============ */
+(function setupBackToTop() {
+  const btn = document.getElementById('backToTop');
+  if (!btn) return;
+
+  let ticking = false;
+  const updateVisibility = () => {
+    const y = window.scrollY || document.documentElement.scrollTop || 0;
+    btn.classList.toggle('visible', y > 400);
+    ticking = false;
+  };
+
+  window.addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(updateVisibility);
+  }, { passive: true });
+
+  btn.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  // 初始化
+  updateVisibility();
+})();
 
 window.xc = {
   info: () => ({ mode: state.mode, questions: questions.length, useIDB, dirty: dirtyQ.size, theme: getTheme() }),

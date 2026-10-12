@@ -175,7 +175,9 @@ function renderCollect(view) {
       </div>
     </div>
   `;
-  const textForTextarea = s.editedOcrText || mergedOcrText();
+  // 只有还有图片时才显示 ② 核对 OCR 文本（防止保存后残留）
+  const hasImagesForOcr = s.images.length > 0;
+  const textForTextarea = hasImagesForOcr ? (s.editedOcrText || mergedOcrText()) : '';
   if (textForTextarea) {
     html += `
       <div class="card">
@@ -742,7 +744,13 @@ function renderSettings(view) {
   const thinkChk = view.querySelector('#defaultThinkingChk');
   if (thinkChk) thinkChk.addEventListener('change', e => {
     setDefaultThinking(e.target.checked);
-    showToast(e.target.checked ? '已默认开启深度思考' : '已关闭默认深度思考');
+    // 同步页面上所有 toggle 的外观
+    document.querySelectorAll('.thinking-toggle').forEach(b => {
+      b.dataset.on = e.target.checked ? '1' : '0';
+      const bd = b.querySelector('.badge');
+      if (bd) bd.textContent = e.target.checked ? 'ON' : 'OFF';
+    });
+    showToast(e.target.checked ? '已开启深度思考' : '已关闭深度思考');
   });
 
   const saveKeyBtn = view.querySelector('#saveKeyBtn');
@@ -2135,16 +2143,21 @@ function renderBrowseDetail(view) {
         <span class="tag primary">${esc(q.module)}</span>
         <span class="tag gray">${esc(q.type)}</span>
         ${(q.knowledgePoints || []).map(k => `<span class="tag gray">${esc(k)}</span>`).join('')}
-        <div style="display:inline-flex;align-items:center;gap:6px;margin-left:auto">
-          <span style="font-size:11px;color:var(--text-3);flex-shrink:0">📎 来源</span>
-          <input id="detail-source-input" class="input" type="text"
-            placeholder="点击填写题目来源"
-            value="${esc(q.source || '')}"
-            style="width:280px;min-width:180px;max-width:280px;padding:5px 10px;font-size:12.5px"
-            title="修改后失焦或按 Enter 保存">
+        <div style="display:inline-flex;align-items:center;gap:10px;margin-left:auto">
+          <div class="star-picker interactive" id="detail-stars-edit" title="点击设置重要性（再点当前星级可取消）">
+            ${[1,2,3,4,5].map(i => `<span class="star${i <= (q.stars || 0) ? ' on' : ''}" data-star="${i}">★</span>`).join('')}
+          </div>
+          <div style="display:inline-flex;align-items:center;gap:6px">
+            <span style="font-size:11px;color:var(--text-3);flex-shrink:0">📎 来源</span>
+            <input id="detail-source-input" class="input" type="text"
+              placeholder="点击填写题目来源"
+              value="${esc(q.source || '')}"
+              style="width:280px;min-width:180px;max-width:280px;padding:5px 10px;font-size:12.5px"
+              title="修改后失焦或按 Enter 保存">
+          </div>
         </div>
-        ${q.stars ? `<span class="detail-stars" title="重要性 ${q.stars} 星">${'★'.repeat(q.stars)}${'☆'.repeat(5 - q.stars)}</span>` : ''}
       </div>
+
       <div id="detail-images-wrap" style="display:${(q.imageIds || []).length ? 'flex' : 'none'};margin-bottom:14px;padding-top:10px"></div>
       <div class="detail-stem" style="margin-top:16px">${
         renderStemWithHighlights(
@@ -2237,7 +2250,7 @@ function renderBrowseDetail(view) {
           <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理，更准但更慢">
             <span class="icon">🧠</span>
             <span class="label">深度思考</span>
-            <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+            <span class="badge">${getSessionThinking() ? 'ON' : 'OFF'}</span>
           </button>
           <button class="btn primary" id="gen-analysis" ${g.analysis ? 'disabled' : ''}>
             ${g.analysis ? '<span class="spinner"></span> 分析中…' : '开始分析'}
@@ -2365,7 +2378,7 @@ function renderBrowseDetail(view) {
         <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理">
           <span class="icon">🧠</span>
           <span class="label">深度思考</span>
-          <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+          <span class="badge">${getSessionThinking() ? 'ON' : 'OFF'}</span>
         </button>
         <button class="btn ghost sm" id="regen-analysis">重新分析</button>
       </div>
@@ -2408,7 +2421,7 @@ function renderBrowseDetail(view) {
           <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理，出的题更有针对性">
             <span class="icon">🧠</span>
             <span class="label">深度思考</span>
-            <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+            <span class="badge">${getSessionThinking() ? 'ON' : 'OFF'}</span>
           </button>
           <button class="btn primary" id="gen-similar" ${g.similar ? 'disabled' : ''}>
             ${g.similar ? '<span class="spinner"></span> 生成中…' : '生成同类题'}
@@ -2454,7 +2467,7 @@ function renderBrowseDetail(view) {
         <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理">
           <span class="icon">🧠</span>
           <span class="label">深度思考</span>
-          <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+          <span class="badge">${getSessionThinking() ? 'ON' : 'OFF'}</span>
         </button>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn ghost sm" id="regen-similar">换一批</button>
@@ -2477,6 +2490,29 @@ function renderBrowseDetail(view) {
     renderView();
     persistBrowseState();
   });
+
+    /* 星级快速编辑 */
+  const starsEdit = view.querySelector('#detail-stars-edit');
+  if (starsEdit) {
+    const stars = [...starsEdit.querySelectorAll('.star')];
+    const apply = (n) => {
+      stars.forEach((s, i) => s.classList.toggle('on', i < n));
+    };
+    stars.forEach(s => {
+      s.addEventListener('mouseenter', () => apply(parseInt(s.dataset.star)));
+      s.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const n = parseInt(s.dataset.star);
+        const cur = q.stars || 0;
+        const next = (cur === n) ? 0 : n;
+        q.stars = next;
+        saveQuestion(q);
+        apply(next);
+        showToast(next ? `已设为 ${next} 星` : '已取消星级');
+      });
+    });
+    starsEdit.addEventListener('mouseleave', () => apply(q.stars || 0));
+  }
 
     /* 来源快速编辑 */
   const sourceInput = view.querySelector('#detail-source-input');
@@ -3947,7 +3983,7 @@ function renderReportBody(scope) {
           <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理">
             <span class="icon">🧠</span>
             <span class="label">深度思考</span>
-            <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+            <span class="badge">${getSessionThinking() ? 'ON' : 'OFF'}</span>
           </button>
           <button class="btn primary" id="gen-report" ${size === 0 ? 'disabled' : ''}>
             ${size === 0 ? '当前范围无数据' : '生成报告'}
@@ -4102,7 +4138,7 @@ function renderReportBody(scope) {
         <button type="button" class="thinking-toggle"  data-on="${getSessionThinking() ? '1' : '0'}" title="开启后使用 DeepSeek-Reasoner 深度推理">
           <span class="icon">🧠</span>
           <span class="label">深度思考</span>
-          <span class="badge">${getDefaultThinking() ? 'ON' : 'OFF'}</span>
+          <span class="badge">${getSessionThinking() ? 'ON' : 'OFF'}</span>
         </button>
         <button class="btn ghost sm" id="regen-report">重新生成</button>
       </div>
