@@ -211,6 +211,7 @@ async function pushToGist() {
 
     const contentStr = JSON.stringify({
       questions,
+      words,          // ← 新增
       deletedIds,
       imageUrls: referencedUrls,
       lastSyncedAt: Date.now()
@@ -274,6 +275,32 @@ async function mergeRemote(remote) {
         updated++;
       }
     }
+  }
+
+  /* 合并 words */
+  const remoteWords = Array.isArray(remote.words) ? remote.words : [];
+  const localWordMap = new Map(words.map(w => [w.id, w]));
+  let wAdded = 0, wUpdated = 0;
+  for (const rw of remoteWords) {
+    if (!rw || !rw.id) continue;
+    const lw = localWordMap.get(rw.id);
+    if (!lw) {
+      words.push(rw);
+      dirtyW.add(rw.id);
+      wAdded++;
+    } else {
+      const lt = lw.updatedAt || lw.createdAt || 0;
+      const rt = rw.updatedAt || rw.createdAt || 0;
+      if (rt > lt) {
+        const idx = words.findIndex(x => x.id === rw.id);
+        words[idx] = rw;
+        dirtyW.add(rw.id);
+        wUpdated++;
+      }
+    }
+  }
+  if (wAdded || wUpdated) {
+    console.log(`[同步] 词库合并：+${wAdded} 更新${wUpdated}`);
   }
 
   const beforeLen = questions.length;

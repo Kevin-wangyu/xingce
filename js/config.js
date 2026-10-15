@@ -34,19 +34,18 @@ function getAiModel() {
 function setAiModel(m) {
   localStorage.setItem(K_AI_MODEL, m === 'deepseek-reasoner' ? 'deepseek-reasoner' : 'deepseek-chat');
 }
+/* ============ 深度思考状态（单一全局状态） ============ */
 function getDefaultThinking() {
   return localStorage.getItem(K_DEFAULT_THINKING) === '1';
 }
-/* 会话级深度思考状态（同一次打开内共享） */
-function getSessionThinking() {
-  const v = localStorage.getItem('xc_session_thinking');
-  return v === null ? getDefaultThinking() : v === '1';
-}
-function setSessionThinking(v) {
-  localStorage.setItem('xc_session_thinking', v ? '1' : '0');
-}
 function setDefaultThinking(v) {
   localStorage.setItem(K_DEFAULT_THINKING, v ? '1' : '0');
+}
+function getSessionThinking() {
+  return getDefaultThinking();
+}
+function setSessionThinking(v) {
+  setDefaultThinking(v);
 }
 const setApiKey = k => localStorage.setItem(K_API_KEY, k);
 const getTheme = () => localStorage.getItem(K_THEME) || 'light';
@@ -63,6 +62,7 @@ const DEFAULT_CHAT_ROLES = {
 
 /* ============ 状态 ============ */
 const state = {
+  search: '',
   mode: 'collect',
   prevMode: 'collect',
   collect: {
@@ -107,7 +107,6 @@ const state = {
     sort: 'updatedAt',  // 'updatedAt' | 'createdAt' | 'module'
     filterModule: 'all'
   },
-  ui: {},
   analysis: {
     module: null,       // null=全部
     type: null,         // null=未进入题型
@@ -115,5 +114,24 @@ const state = {
     report: null,       // 当前范围的 AI 报告
     loading: false,
     search: ''
-  }
+  },
+  wp: {
+    current: null,
+    answered: false,
+    selected: null,
+    session: { total: 0, correct: 0 },
+    filter: 'all',
+    targetCount: 10,      // 本轮目标题数
+    finished: false,      // 本轮是否已完成
+    wrongIds: []          // 本轮答错的词 id
+  },
+  editingW: null,
+  pendingSynonyms: [],
+  wordsPage: 1,
+  wordsPageSize: 20,
+  wordsSortBy: 'pinyin',       // 'pinyin' | 'recent'
+  wordsLetterFilter: 'all',    // 'all' | 'A'~'Z' | '#'
+  wordsTab: (function() {
+    try { return localStorage.getItem('xc_words_tab') || 'practice'; } catch { return 'practice'; }
+  })(),
 };

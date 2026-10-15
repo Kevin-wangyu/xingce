@@ -22,22 +22,6 @@ document.addEventListener('click', (e) => {
 
   console.log('[深度思考]', next ? 'ON' : 'OFF');
 });
-/* 会话级状态（浏览器打开期间，随时可切换） */
-/* 设置页的"默认"偏好（下次打开时的初始值） */
-function getDefaultThinking() {
-  return localStorage.getItem(K_DEFAULT_THINKING) === '1';
-}
-function setDefaultThinking(v) {
-  localStorage.setItem(K_DEFAULT_THINKING, v ? '1' : '0');
-}
-
-/* 深度思考：单一全局状态，勾选/点击都立即生效并持久化 */
-function getSessionThinking() {
-  return getDefaultThinking();
-}
-function setSessionThinking(v) {
-  setDefaultThinking(v);
-}
 
 
 /* ============ 启动 ============ */
@@ -54,10 +38,20 @@ document.querySelectorAll('.nav button').forEach(btn => {
 });
 
 (async function boot() {
+  
   await openDB();
   if (useIDB) {
     try {
       questions = (await idbGetAll('questions')) || [];
+      words = (await idbGetAll('words')) || [];
+        // 词库字段规范化
+      words.forEach(w => {
+        if (typeof w.wrong !== 'number') w.wrong = 0;
+        if (typeof w.right !== 'number') w.right = 0;
+        if (typeof w.lastPracticedAt !== 'number') w.lastPracticedAt = 0;
+        if (!Array.isArray(w.distractors)) w.distractors = [];
+        if (!Array.isArray(w.synonyms)) w.synonyms = [];
+      });
       settings = (await getMeta('settings')) || {};
       deletedIds = (await getMeta('deletedIds')) || [];
       const lastSync = await getMeta('lastSyncedAt');
@@ -90,7 +84,7 @@ document.querySelectorAll('.nav button').forEach(btn => {
 
   // 恢复上次所在 Tab（含设置页）
   const savedMode = localStorage.getItem('xc_mode');
-  const validModes = ['collect','exam','browse','notes','analysis','settings'];
+  const validModes = ['collect','exam','browse','notes','words','analysis','settings'];
   if (savedMode && validModes.includes(savedMode)) {
     state.mode = savedMode;
     state.prevMode = savedMode === 'settings' ? (state.prevMode || 'collect') : savedMode;
@@ -182,6 +176,13 @@ document.querySelectorAll('.nav button').forEach(btn => {
     console.log(`[清理] 清空 ${clearedAnalyses} 道题的旧 AI 分析`);
     scheduleFlush();
   }
+    // 兜底：如果 localStorage 有 mode 但 state.mode 不是它，强制覆盖
+  const _forceMode = localStorage.getItem('xc_mode');
+  const _validForce = ['collect','exam','browse','notes','words','analysis','settings'];
+  if (_forceMode && _validForce.includes(_forceMode) && state.mode !== _forceMode) {
+    state.mode = _forceMode;
+    console.log('[boot] 兜底强制 mode:', _forceMode);
+  }
 
   renderView();
 
@@ -227,7 +228,7 @@ document.querySelectorAll('.nav button').forEach(btn => {
   }
   // 注册 Service Worker 缓存 OCR 资源
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').then(reg => {
+    navigator.serviceWorker.register('js/sw.js').then(reg => {
       console.log('[SW] 已注册');
       // 不主动 update，避免频繁触发 controllerchange
       // 不监听 controllerchange 自动 reload
@@ -256,9 +257,17 @@ document.querySelectorAll('.nav button').forEach(btn => {
   window.addEventListener('beforeunload', () => {
     if (!useIDB) return;
     try {
+      if (dirtyW.size) {
+        const toSaveW = words.filter(w => dirtyW.has(w.id));
+        if (toSaveW.length) idbBulkPut('words', toSaveW);
+      }
       if (dirtyQ.size) {
         const toSave = questions.filter(q => dirtyQ.has(q.id));
         if (toSave.length) idbBulkPut('questions', toSave);
+      }
+      if (dirtyW.size) {
+        const toSaveW = words.filter(w => dirtyW.has(w.id));
+        if (toSaveW.length) idbBulkPut('words', toSaveW);
       }
       if (lastSyncedAt) setMeta('lastSyncedAt', lastSyncedAt);
     } catch {}

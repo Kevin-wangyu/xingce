@@ -1,6 +1,6 @@
 /* ============ IndexedDB ============ */
 const DB_NAME = 'xingce_db';
-const DB_VERSION = 2;
+const DB_VERSION = 4;
 let db = null;
 let useIDB = true;
 
@@ -28,6 +28,7 @@ function openDB() {
         if (!d.objectStoreNames.contains('questions')) d.createObjectStore('questions', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'key' });
         if (!d.objectStoreNames.contains('images')) d.createObjectStore('images', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('words')) d.createObjectStore('words', { keyPath: 'id' });
       };
       req.onsuccess = e => {
         db = e.target.result;
@@ -85,8 +86,10 @@ const _imageUrlCache = new Map();  // imageId → objectURL
 
 /* ============ 内存 + 落盘调度 ============ */
 let questions = [];
+let words = [];
 let settings = {};
 let dirtyQ = new Set();
+let dirtyW = new Set();
 let flushTimer = null;
 let deletedIds = [];
 let lastSyncedAt = 0;
@@ -168,13 +171,50 @@ function scheduleFlush() {
   if (flushTimer) return;
   flushTimer = setTimeout(async () => {
     flushTimer = null;
-    if (!useIDB) return;
-    try {
-      const toSave = questions.filter(q => dirtyQ.has(q.id));
-      if (toSave.length) await idbBulkPut('questions', toSave);
+    if (!useIDB) {
+      // 降级：写回 localStorage
+      try { localStorage.setItem('xc_questions', JSON.stringify(questions)); } catch {}
+      try { localStorage.setItem('xc_words', JSON.stringify(words)); } catch {}
       dirtyQ.clear();
+      dirtyW.clear();
+      return;
+    }
+    try {
+      if (dirtyQ.size) {
+        const toSave = questions.filter(q => dirtyQ.has(q.id));
+        if (toSave.length) await idbBulkPut('questions', toSave);
+        dirtyQ.clear();
+      }
+      if (dirtyW.size) {
+        const toSave = words.filter(w => dirtyW.has(w.id));
+        if (toSave.length) await idbBulkPut('words', toSave);
+        dirtyW.clear();
+      }
     } catch (e) { console.warn('IDB 写入失败：', e); }
   }, 300);
+}
+function saveWord(w) {
+  w.updatedAt = Date.now();
+  const idx = words.findIndex(x => x.id === w.id);
+  if (idx >= 0) words[idx] = w; else words.push(w);
+  dirtyW.add(w.id);
+  scheduleFlush();
+  schedulePush();
+  invalidateStorageCache();
+}
+
+function saveWordsAll() {
+  words.forEach(w => dirtyW.add(w.id));
+  scheduleFlush();
+  schedulePush();
+  invalidateStorageCache();
+}
+
+async function deleteWord(id) {
+  words = words.filter(w => w.id !== id);
+  if (useIDB) { try { await idbDelete('words', id); } catch (e) { console.warn(e); } }
+  schedulePush();
+  invalidateStorageCache();
 }
 function saveQuestion(q) {
   q.updatedAt = Date.now();
@@ -207,7 +247,16 @@ async function deleteQuestion(id) {
 async function getMeta(key) { if (!useIDB) return null; try { const r = await idbGet('meta', key); return r ? r.value : null; } catch { return null; } }
 async function setMeta(key, value) { if (!useIDB) return; try { await idbPut('meta', { key, value }); } catch (e) { console.warn(e); } }
 async function clearAllStores() {
-  if (useIDB) { await idbClear('questions'); await idbClear('meta'); }
-  questions = []; settings = {}; dirtyQ.clear();
+  if (useIDB) {
+    await idbClear('questions');
+    await idbClear('words');
+    await idbClear('images');
+    await idbClear('meta');
+  }
+  questions = [];
+  words = [];
+  settings = {};
+  dirtyQ.clear();
+  dirtyW.clear();
   localStorage.removeItem('xc_browse_state');
 }

@@ -6,8 +6,11 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<link rel="icon" href="data:,">
 <title>行测错题本 · AI 学习助手</title>
+
 <link rel="stylesheet" href="css/style.css">
+
 <script>
 (function(){
   try {
@@ -17,7 +20,7 @@
 })();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.26.0"></script>
 
 <script src="js/config.js"></script>
 <script src="js/db.js"></script>
@@ -25,7 +28,7 @@
 <script src="js/tools.js"></script>
 <script src="js/ocr.js"></script>
 <script src="js/sync.js"></script>
-<script src="js/sw.js"></script>
+
 
 <script src="js/render.js"></script>
 
@@ -66,6 +69,7 @@
       <button data-mode="exam">错题考试</button>
       <button data-mode="browse">错题查看</button>
       <button data-mode="notes">个人笔记</button>
+      <button data-mode="words">词库</button>
       <button data-mode="analysis">AI 分析</button>
     </nav>
   </div>

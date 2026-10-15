@@ -112,7 +112,6 @@ function loadBrowseState() {
 
 function saveCurrentMode() {
   try {
-    // 设置页也记录，刷新后能回到设置页
     localStorage.setItem('xc_mode', state.mode);
   } catch {}
 }
@@ -413,6 +412,7 @@ async function updateStatusChip() {
   if (!chip) return;
 
   if (!useIDB) {
+    try { words = JSON.parse(localStorage.getItem('xc_words') || '[]'); } catch { words = []; }
     chip.className = 'status-chip gray';
     chip.title = window._idbError || 'IDB 不可用';
     chip.innerHTML = `<span class="dot"></span><span>localStorage 模式${window._idbError ? ' ⚠️' : ''}</span>`;
@@ -574,3 +574,85 @@ document.addEventListener('keydown', e => {
     }
   }
 });
+/* 数组洗牌（Fisher-Yates） */
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+/* ============ 词语复习调度（艾宾浩斯记忆曲线） ============ */
+
+/* 计算一个词的复习优先级分数（越高越该练） */
+function calcWordPriority(w) {
+  const now = Date.now();
+  const right = Math.max(0, w.right || 0);
+  const wrong = Math.max(0, w.wrong || 0);
+  const lastT = w.lastPracticedAt || 0;
+
+  // 从未练习过：最高优先级
+  if (!lastT) return 100 + wrong * 20;
+
+  // 根据已连续正确次数确定复习间隔
+  const MIN = 60 * 1000;
+  const HOUR = 60 * MIN;
+  const DAY = 24 * HOUR;
+  const INTERVALS = [
+    10 * MIN,       // right=0：10 分钟后复习
+    HOUR,           // right=1：1 小时
+    DAY,            // right=2：1 天
+    3 * DAY,        // right=3：3 天
+    7 * DAY,        // right=4：7 天
+    14 * DAY        // right>=5：14 天
+  ];
+  const interval = INTERVALS[Math.min(right, INTERVALS.length - 1)];
+  const elapsed = now - lastT;
+
+  if (elapsed < interval) {
+    // 还没到复习时间：低权重（但非零，避免无题可出）
+    const progress = elapsed / interval;
+    return 1 + progress * 8 + wrong * 3;
+  }
+
+  // 已过复习时间：超期越久 + 错越多 → 权重越高
+  const overdueRatio = (elapsed - interval) / interval;
+  const overdueBonus = Math.min(overdueRatio, 5) * 15;
+  return 30 + overdueBonus + wrong * 20;
+}
+
+/* 按权重随机抽一个词 */
+function pickWeightedWord(pool) {
+  if (!pool.length) return null;
+  const weights = pool.map(calcWordPriority);
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (total <= 0) return pool[Math.floor(Math.random() * pool.length)];
+  let r = Math.random() * total;
+  for (let i = 0; i < pool.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return pool[i];
+  }
+  return pool[pool.length - 1];
+}
+
+/* ============ 拼音工具 ============ */
+
+/* 取一个词的首字母（大写），无法识别返回 '#' */
+function getWordFirstLetter(word) {
+  if (!word) return '#';
+  const first = String(word)[0];
+  if (/[a-zA-Z]/.test(first)) return first.toUpperCase();
+  try {
+    if (window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') {
+      const letter = window.pinyinPro.pinyin(first, { pattern: 'first', toneType: 'none' });
+      if (letter && /[a-zA-Z]/.test(letter[0])) return letter[0].toUpperCase();
+    }
+  } catch (e) {}
+  return '#';
+}
+
+/* 按拼音排序（A-Z，非汉字归到最后） */
+function sortWordsByPinyin(list) {
+  const collator = new Intl.Collator('zh-CN');
+  return [...list].sort((a, b) => collator.compare(a.word || '', b.word || ''));
+}
