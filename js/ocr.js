@@ -408,10 +408,12 @@ function syncAllParsedCardsToState() {
     if (expl) p.originalExplanation = expl.value;
     // 知识点从 DOM 重建
     const tags = [...card.querySelectorAll('.kp-wrap .kp-tag')];
-    p.kpDraft = tags.map(t => (t.childNodes[0]?.textContent || '').trim());
+    p.kpDraft = tags.map(t => {
+      const txt = t.childNodes[0]?.textContent || '';
+      return txt.trim();
+    });
   });
 }
-
 /* ============ 图片编辑器 ============ */
 function openImageEditor(file) {
   return new Promise((resolve) => {
@@ -741,7 +743,6 @@ function bindCollectEvents() {
     state.collect.images = [];
     state.collect.parsedList = [];
     state.collect.editedOcrText = '';
-    state.collect.sourceInput = '';
     state.collect.busy = false;
     renderView();
   });
@@ -828,12 +829,14 @@ function bindCollectEvents() {
         newTag.innerHTML = `${esc(v)}<button title="删除">×</button>`;
         kpWrap.insertBefore(newTag, kpInput);
         newTag.querySelector('button').addEventListener('click', () => {
-          p.kpDraft = p.kpDraft.filter(x => x !== v);
           newTag.remove();
+          const tags = [...kpWrap.querySelectorAll('.kp-tag')];
+          p.kpDraft = tags.map(t => (t.childNodes[0]?.textContent || '').trim());
         });
       });
     }
 
+    // 已存在的知识点删除（纯 DOM 操作，不 renderView）
     // 已存在的知识点删除（纯 DOM 操作，不 renderView）
     card.querySelectorAll('[data-kp-del]').forEach(b => {
       b.addEventListener('click', e => {
@@ -842,11 +845,7 @@ function bindCollectEvents() {
         if (tagEl) tagEl.remove();
         // 从 DOM 重建 kpDraft
         const tags = [...card.querySelectorAll('.kp-wrap .kp-tag')];
-        p.kpDraft = tags.map(t => {
-          // 取第一个文本节点（不含 × 按钮）
-          const txt = t.childNodes[0]?.textContent || '';
-          return txt.trim();
-        });
+        p.kpDraft = tags.map(t => (t.childNodes[0]?.textContent || '').trim());
       });
     });
 
@@ -889,13 +888,16 @@ function bindCollectEvents() {
     });
 
     // 全选 / 全不选
+    // 全选 / 全不选
     const selAllBtn = card.querySelector('[data-img-select-all]');
     if (selAllBtn) selAllBtn.addEventListener('click', () => {
+      syncAllParsedCardsToState();   // ← 先同步其他卡片
       p.selectedImageIds = state.collect.images.filter(img => img.imageId).map(img => img.imageId);
       renderView();
     });
     const selNoneBtn = card.querySelector('[data-img-select-none]');
     if (selNoneBtn) selNoneBtn.addEventListener('click', () => {
+      syncAllParsedCardsToState();   // ← 先同步其他卡片
       p.selectedImageIds = [];
       renderView();
     });
@@ -977,7 +979,6 @@ function bindCollectEvents() {
       s.images = [];
       s.parsedList = [];
       s.editedOcrText = '';
-      s.sourceInput = '';
       s.busy = false;
       s._ocrRunning = false;
 

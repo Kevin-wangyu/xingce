@@ -3355,3 +3355,39 @@ details.card.collapsible > .card-body {
   background: rgba(255,255,255,0.25);
   color: #fff;
 }
+/* ============ 词条：可点击区 / 展开区视觉区分 ============ */
+
+/* 展开区内的所有元素：鼠标默认样式，允许选中文字 */
+.word-row-expand,
+.word-row-expand * {
+  cursor: default;
+}
+.word-row-expand .syn-line,
+.word-row-expand .note-line,
+.word-row-expand .expand-label {
+  user-select: text;
+  cursor: text;
+}
+.word-row-expand button {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* 第一行文字：可点击反馈 */
+.word-row-word,
+.word-row-def,
+.word-row-syn,
+.word-row-stat {
+  transition: color .15s ease, background .15s ease;
+}
+.word-row-word:hover {
+  color: var(--primary);
+}
+.word-row-def:hover {
+  color: var(--text);
+}
+
+/* 展开时，第一行给个"已激活"的微弱提示 */
+.word-row.expanded .word-row-word {
+  color: var(--primary);
+}

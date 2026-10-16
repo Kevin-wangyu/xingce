@@ -129,7 +129,7 @@ const state = {
   pendingSynonyms: [],
   wordsPage: 1,
   wordsPageSize: 20,
-  wordsSortBy: 'pinyin',       // 'pinyin' | 'recent'
+  wordsSortBy: 'recent',       // 'pinyin' | 'recent'
   wordsLetterFilter: 'all',    // 'all' | 'A'~'Z' | '#'
   wordsTab: (function() {
     try { return localStorage.getItem('xc_words_tab') || 'practice'; } catch { return 'practice'; }

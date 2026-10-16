@@ -208,6 +208,9 @@ function questionFingerprint(stem) {
 }
 
 function findDuplicate(newQ, excludeIds = []) {
+  // 图形推理跳过查重（题目文字大同小异，容易误判）
+  if (newQ.module === '判断推理' && newQ.type === '图形推理') return null;
+
   const fp = questionFingerprint(newQ.stem);
   if (!fp) return null;
   return questions.find(q => {

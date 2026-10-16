@@ -212,7 +212,6 @@ async function pushToGist() {
     const contentStr = JSON.stringify({
       questions,
       words,          // ← 新增
-      deletedIds,
       imageUrls: referencedUrls,
       lastSyncedAt: Date.now()
     }, null, 2);

@@ -341,9 +341,7 @@ function renderParsedCard(p, qi) {
           const disabled = imgCount === 0;
           // 初始化 selectedImageIds（如果还没初始化过）
           if (!Array.isArray(p.selectedImageIds)) {
-            p.selectedImageIds = isGraphic
-              ? state.collect.images.filter(img => img.imageId).map(img => img.imageId)
-              : [];
+            p.selectedImageIds = [];   // 默认全不选，用户手动勾
           }
           const selectedSet = new Set(p.selectedImageIds);
           return `
@@ -352,9 +350,9 @@ function renderParsedCard(p, qi) {
                 <div style="font-size:13px;font-weight:600;color:${disabled ? 'var(--text-3)' : 'var(--text)'}">
                   🖼️ 保存哪些图片
                   <span style="font-size:11px;color:var(--text-3);font-weight:400;margin-left:6px">
-                    ${disabled ? '（本次未上传图片）' :
-                      isGraphic ? '（已自动全选，可手动取消）' :
-                      '（默认不选，点缩略图选中）'}
+                  ${disabled ? '（本次未上传图片）' :
+                    isGraphic ? '（图形/图表题建议选图，请手动勾选）' :
+                    '（默认不选，点缩略图选中）'}
                   </span>
                 </div>
                 ${!disabled ? `
@@ -2054,9 +2052,12 @@ function renderNotes(view) {
 
 /* ============ AI：词语辨析信息生成 ============ */
 async function fetchWordInfo(word) {
+  console.log('[词语AI] fetchWordInfo 被调用，word=', word);   // ← 加这行
   const apiKey = getApiKey();
   if (!apiKey) throw new Error('请先设置 API Key');
+  console.log('[词语AI] apiKey 长度=', apiKey.length);         // ← 加这行
   const model = getAiModel();
+  console.log('[词语AI] model=', model);    
 
   const sys = `你是行测逻辑填空备考助手。用户输入一个汉语词语，返回严格 JSON：
 {
@@ -2531,8 +2532,8 @@ function renderWordsManage(view) {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <select id="wordSortBy" class="input" style="width:auto;padding:5px 28px 5px 10px;font-size:12.5px">
-            <option value="pinyin" ${state.wordsSortBy === 'pinyin' ? 'selected' : ''}>按拼音排序</option>
             <option value="recent" ${state.wordsSortBy === 'recent' ? 'selected' : ''}>按添加时间</option>
+            <option value="pinyin" ${state.wordsSortBy === 'pinyin' ? 'selected' : ''}>按拼音排序</option>
           </select>
           <button class="btn primary sm" id="openAddWord">➕ 添加词条</button>
           <button class="btn sm" id="exportWBtn">导出</button>
@@ -2731,7 +2732,11 @@ function renderWordList(container) {
   /* ---- 点击展开（手风琴） ---- */
   container.querySelectorAll('.word-row').forEach(row => {
     row.addEventListener('click', (e) => {
+      // 点按钮 → 不触发展开
       if (e.target.closest('button')) return;
+      // 点展开区（近义词/笔记）→ 不触发展开
+      if (e.target.closest('.word-row-expand')) return;
+
       const isExpanded = row.classList.contains('expanded');
       container.querySelectorAll('.word-row.expanded').forEach(r => {
         if (r !== row) r.classList.remove('expanded');
@@ -2959,33 +2964,57 @@ function openWordModal(editId) {
 
   // AI 查询
   const aiBtn = overlay.querySelector('#aiWordBtn');
-  if (aiBtn) aiBtn.addEventListener('click', async () => {
-    const w = overlay.querySelector('#f-word').value.trim();
-    const st = overlay.querySelector('#aiWordStatus');
-    if (!w) { st.textContent = '⚠️ 请先输入词语'; st.style.color = 'var(--danger)'; return; }
-    if (!getApiKey()) { st.textContent = '⚠️ 请先配置 API Key'; st.style.color = 'var(--danger)'; return; }
-    aiBtn.disabled = true;
-    aiBtn.innerHTML = '<span class="spinner"></span>生成中...';
-    try {
-      const info = await fetchWordInfo(w);
-      // 显示详情区
-      overlay.querySelector('#wordDetailFields').style.display = 'block';
-      overlay.querySelector('#f-correct').value = info.correct || '';
-      overlay.querySelector('#f-dist').value = (info.distractors || []).join('\n');
-      overlay.querySelector('#f-note').value = info.note || '';
-      state.pendingSynonyms = info.synonyms || [];
-      renderSynTags(synWrap);
-      st.textContent = `✅ 已生成（${info.synonyms.length} 个近义词）`;
-      st.style.color = 'var(--success)';
-      aiBtn.disabled = false;
-      aiBtn.textContent = '🤖 AI 查询';
-    } catch (e) {
-      st.textContent = '❌ ' + e.message;
-      st.style.color = 'var(--danger)';
-      aiBtn.disabled = false;
-      aiBtn.textContent = '🤖 AI 查询';
-    }
-  });
+  if (aiBtn) {
+    aiBtn.addEventListener('click', async () => {
+      console.log('[AI查询] 按钮点击触发');
+      const w = overlay.querySelector('#f-word').value.trim();
+      const st = overlay.querySelector('#aiWordStatus');
+
+      if (!w) {
+        st.textContent = '⚠️ 请先输入词语';
+        st.style.color = 'var(--danger)';
+        return;
+      }
+      if (!getApiKey()) {
+        st.textContent = '⚠️ 请先配置 API Key';
+        st.style.color = 'var(--danger)';
+        return;
+      }
+
+      // 去重检查
+      const excludeId = editing ? editing.id : null;
+      const dup = words.find(x => x.word === w && x.id !== excludeId);
+      if (dup) {
+        st.textContent = `⚠️ 「${w}」已在词库中`;
+        st.style.color = 'var(--warn)';
+        return;
+      }
+
+      aiBtn.disabled = true;
+      aiBtn.innerHTML = '<span class="spinner"></span>生成中...';
+      st.textContent = '正在请求 AI…';
+      st.style.color = 'var(--text-3)';
+
+      try {
+        const info = await fetchWordInfo(w);
+        overlay.querySelector('#wordDetailFields').style.display = 'block';
+        overlay.querySelector('#f-correct').value = info.correct || '';
+        overlay.querySelector('#f-dist').value = (info.distractors || []).join('\n');
+        overlay.querySelector('#f-note').value = info.note || '';
+        state.pendingSynonyms = info.synonyms || [];
+        renderSynTags(synWrap);
+        st.textContent = `✅ 已生成（${info.synonyms.length} 个近义词）`;
+        st.style.color = 'var(--success)';
+      } catch (e) {
+        console.error('[AI查询] 失败：', e);
+        st.textContent = '❌ ' + e.message;
+        st.style.color = 'var(--danger)';
+      } finally {
+        aiBtn.disabled = false;
+        aiBtn.textContent = '🤖 AI 查询';
+      }
+    });
+  }
 
   // 保存
   overlay.querySelector('#saveWBtn').addEventListener('click', () => {
@@ -2998,6 +3027,16 @@ function openWordModal(editId) {
       alert('请填写「正确释义」（可点 AI 查询自动生成）');
       return;
     }
+
+    // ===== 去重检查（编辑模式下排除自己） =====
+    const excludeId = editing ? editing.id : null;
+    const dup = words.find(x => x.word === w && x.id !== excludeId);
+    if (dup) {
+      showToast(`「${w}」已存在`);
+      return;
+    }
+    // ===== 去重检查结束 =====
+
     const dist = overlay.querySelector('#f-dist').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 5);
     const note = overlay.querySelector('#f-note').value.trim();
 
@@ -3028,7 +3067,7 @@ function openWordModal(editId) {
     closeModal();
     showToast(editing ? '已更新' : '已保存');
 
-    // 局部刷新词库列表
+    // 局部刷新词库列表 + 分页
     const container = document.getElementById('wordListContainer');
     if (container) renderWordList(container);
   });
