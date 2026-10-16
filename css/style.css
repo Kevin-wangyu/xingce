@@ -1,3 +1,7 @@
+html {
+  overflow-y: scroll;   /* 滚动条常驻，防止抖动 */
+  scrollbar-gutter: stable;   /* 现代浏览器：为滚动条预留空间 */
+}
 :root {
   --bg: #f7f8fb;
   --card: #ffffff;

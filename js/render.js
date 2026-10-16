@@ -2154,6 +2154,8 @@ function renderWords(view) {
       state.wordsTab = btn.dataset.wordstab;
       localStorage.setItem('xc_words_tab', state.wordsTab);
       renderView();
+      // 切换后滚到顶部（避免高度变化导致位置跳动）
+      window.scrollTo({ top: 0, behavior: 'instant' });
     });
   });
 }
