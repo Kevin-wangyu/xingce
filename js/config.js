@@ -126,6 +126,7 @@ const state = {
       knowledgePoints: []
     },
     count: 10,
+    showOnlyWrong: false, // 结束后是否只看错题
     quiz: [],                // 抽取的题目
     current: 0,
     startTime: 0,
@@ -148,6 +149,7 @@ const state = {
     sortBy: 'wrongCount',
     page: 1,
     pageSize: 20,
+    returnMode: 'browse', // 'browse' | 'exam' | 'examRecord'
   },
   notes: {
     sort: 'updatedAt',  // 'updatedAt' | 'createdAt' | 'module'

@@ -1059,7 +1059,9 @@ function renderExam(view) {
   const e = state.exam;
   if (e.stage === 'idle') renderExamIdle(view);
   else if (e.stage === 'running') renderExamRunning(view);
-  else renderExamFinished(view);
+  else if (e.stage === 'finished') renderExamFinished(view);
+  else if (e.stage === 'history') renderExamHistoryList(view);
+  else if (e.stage === 'history_detail') renderExamHistoryDetail(view);
 }
 
 
@@ -1078,7 +1080,14 @@ function filterQuestions(f) {
 function renderExamIdle(view) {
   const e = state.exam;
   const f = e.filter;
+  
+  // 1. 计算当前筛选范围内的可用题目
   const available = filterQuestions(f);
+  
+  // 2. 计算当前筛选范围内，到期需要复习的题目池
+  const now = Date.now();
+  const reviewPool = available.filter(q => getNextReviewTime(q) <= now);
+  const reviewCount = reviewPool.length;
 
   const kpSet = new Set();
   available.forEach(q => (q.knowledgePoints || []).forEach(k => kpSet.add(k)));
@@ -1087,34 +1096,38 @@ function renderExamIdle(view) {
   const types = f.module === 'all' ? Object.values(CATEGORIES).flat() : (CATEGORIES[f.module] || []);
   const maxCount = available.length;
   const suggested = Math.min(Math.max(1, e.count), Math.max(1, maxCount));
-
-  const reviewPool = getTodayReviewQuestions();
-  const reviewCount = reviewPool.length;
   
   let html = `
+
+    <!-- 智能复习卡片 -->
     <div class="card" style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.05));border-color:rgba(99,102,241,0.2)">
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
         <div style="width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 4px 12px rgba(99,102,241,0.3)">🧠</div>
         <div style="flex:1;min-width:200px">
           <div style="font-size:16px;font-weight:800;color:var(--text);margin-bottom:4px">今日智能复习</div>
           <div style="font-size:13px;color:var(--text-2)">
-            ${reviewCount > 0 ? `根据记忆曲线，当前有 <b style="color:var(--primary);font-size:15px">${reviewCount}</b> 道错题到了该复习的时间。` : '太棒了，当前没有到期的错题，可以去练习新题。'}
+            ${reviewCount > 0 
+              ? `在<b>当前筛选范围</b>内，有 <b style="color:var(--primary);font-size:15px">${reviewCount}</b> 道错题到了该复习的时间。` 
+              : '当前范围内没有到期的错题，可以去练习新题。'}
           </div>
         </div>
+
         ${reviewCount > 0 ? `
-          <button class="btn primary" id="start-smart-review" style="padding:10px 24px;font-size:14px">开始复习 (${Math.min(reviewCount, 20)})</button>
+          <button class="btn primary" id="start-smart-review" data-review-count="${reviewCount}" style="padding:10px 24px;font-size:14px">
+            开始复习 (${Math.min(reviewCount, e.count || 10)})
+          </button>
         ` : ''}
       </div>
     </div>
-  `;
 
-  html += `
+    <!-- 手动组卷卡片 -->
     <div class="card">
       <div class="card-head">
         <div>
-          <div class="card-title">错题考试</div>
+          <div class="card-title">自主组卷</div>
           <div class="card-sub">筛选范围后随机抽题作答</div>
         </div>
+
         <span class="tag ${maxCount ? 'primary' : 'gray'}">${maxCount} 题可用</span>
       </div>
 
@@ -1148,7 +1161,6 @@ function renderExamIdle(view) {
           ">${esc(k)}</button>`;
         }).join('') : '<span style="color:var(--text-3);font-size:12px">当前范围内没有知识点</span>'}
       </div>
-      <div class="kp-hint">点击切换选中；选多个时，只出包含任一所选知识点的题目。</div>
 
       <label>抽题数量</label>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -1163,6 +1175,9 @@ function renderExamIdle(view) {
         <button class="btn primary" id="exam-start" ${maxCount === 0 ? 'disabled' : ''}>
           ${maxCount === 0 ? '没有可用题目' : '开始考试'}
         </button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <button class="btn sm ghost" id="view-exam-history">📅 考试记录</button>
       </div>
     </div>
   `;
@@ -1180,7 +1195,48 @@ function renderExamIdle(view) {
   }
 
   view.innerHTML = html;
+  
+  // 绑定原有的手动组卷事件
   bindExamIdleEvents(view);
+  const btnHistory = view.querySelector('#view-exam-history');
+  if (btnHistory) {
+    btnHistory.addEventListener('click', () => {
+      state.exam.stage = 'history';
+      renderView();
+    });
+  }
+
+  // ===== 新增：单独绑定智能复习按钮（避免与原有事件冲突） =====
+  const btnSmart = view.querySelector('#start-smart-review');
+  if (btnSmart) {
+    btnSmart.addEventListener('click', (e) => {
+      e.preventDefault();
+      // 点击时重新计算一次到期池，确保数据是最新的
+      const poolNow = filterQuestions(f).filter(q => getNextReviewTime(q) <= now);
+      if (!poolNow.length) {
+        alert('当前没有可复习的题目');
+        return;
+      }
+      // 动态取用户设置的抽题数
+      const limit = state.exam.count || 10;
+      const pool = poolNow.slice(0, limit); 
+      const shuffled = [...pool].sort(() => Math.random() - 0.5);
+      
+      state.exam.quiz = shuffled.map(q => ({
+        id: q.id, stem: q.stem, options: q.options.slice(),
+        correctIdx: q.correctIdx, module: q.module, type: q.type,
+        knowledgePoints: (q.knowledgePoints || []).slice(),
+        originalExplanation: q.originalExplanation || '',
+        selected: null, answered: false
+      }));
+      state.exam.current = 0;
+      state.exam.startTime = Date.now();
+      state.exam.endTime = 0;
+      state.exam.results = [];
+      state.exam.stage = 'running';
+      renderView();
+    });
+  }
 }
 
 function bindExamIdleEvents(view) {
@@ -1209,40 +1265,37 @@ function bindExamIdleEvents(view) {
       renderView();
     });
   });
+    view.querySelectorAll('.exam-count-quick').forEach(b => {
+    b.addEventListener('click', () => {
+      const n = parseInt(b.dataset.n);
+      e.count = n;
+      
+      // 1. 同步更新输入框的值
+      const input = view.querySelector('#exam-count');
+      if (input) input.value = n;
+      
+      // 2. 同步更新智能复习按钮的文字
+      const btnSmart = view.querySelector('#start-smart-review');
+      if (btnSmart) {
+        const totalReview = parseInt(btnSmart.dataset.reviewCount) || 0;
+        btnSmart.textContent = `开始复习 (${Math.min(totalReview, n)})`;
+      }
+      
+      // 注意：这里不要去调用 renderView()，避免页面闪烁和焦点丢失
+    });
+  });
 
   view.querySelector('#exam-count').addEventListener('input', ev => {
     e.count = Math.max(1, parseInt(ev.target.value) || 1);
+    
+    // 实时更新智能复习按钮上的数字
+    const btnSmart = view.querySelector('#start-smart-review');
+    if (btnSmart) {
+      const totalReview = parseInt(btnSmart.dataset.reviewCount) || 0;
+      const n = Math.min(totalReview, e.count);
+      btnSmart.textContent = `开始复习 (${n})`;
+    }
   });
-
-  view.querySelectorAll('.exam-count-quick').forEach(b => {
-    b.addEventListener('click', () => {
-      e.count = parseInt(b.dataset.n);
-      renderView();
-    });
-  });
-
-  const btnSmart = view.querySelector('#start-smart-review');
-  if (btnSmart) {
-    btnSmart.addEventListener('click', () => {
-      // 取前 20 题
-      const pool = getTodayReviewQuestions().slice(0, 20);
-      const shuffled = [...pool].sort(() => Math.random() - 0.5);
-      
-      e.quiz = shuffled.map(q => ({
-        id: q.id, stem: q.stem, options: q.options.slice(),
-        correctIdx: q.correctIdx, module: q.module, type: q.type,
-        knowledgePoints: (q.knowledgePoints || []).slice(),
-        originalExplanation: q.originalExplanation || '',
-        selected: null, answered: false
-      }));
-      e.current = 0;
-      e.startTime = Date.now();
-      e.endTime = 0;
-      e.results = [];
-      e.stage = 'running';
-      renderView();
-    });
-  }
 }
 
 /* ---- 开始考试 ---- */
@@ -1273,45 +1326,29 @@ function renderExamRunning(view) {
   if (!e.quiz[e.current]) { finishExam(); return; }
   const q = e.quiz[e.current];
   const total = e.quiz.length;
-  const answered = q.answered;
-
   const elapsed = Math.floor((Date.now() - e.startTime) / 1000);
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
-  const progress = ((e.current + (answered ? 1 : 0)) / total) * 100;
-
-    // 当前题的理想用时
-  const currentQTimeLimit = TYPE_TIME_PER_Q[q.type] || MODULE_TIME_PER_Q[q.module] || 60;
-  // 当前题已耗时（如果是未答的新题，需要记录一个开始时间）
-  if (!q._startTime) q._startTime = Date.now();
-  const currentQElapsed = Math.floor((Date.now() - q._startTime) / 1000);
+  const progress = ((e.current + 1) / total) * 100;
   
-  // 判断是否超时（超过理想用时的 1.5 倍即警告）
-  const isOverLimit = currentQElapsed > currentQTimeLimit * 1.5;
+  // 判断当前题是否已经选过
+  const answered = q.selected !== null;
 
   let html = `
     <div class="card">
       <div class="card-head" style="margin-bottom:14px">
         <div>
           <div class="card-title">第 ${e.current + 1} / ${total} 题</div>
-          <div class="card-sub" id="exam-timer">总用时 ${mm}:${ss}</div>
+          <div class="card-sub" id="exam-timer">用时 ${mm}:${ss}</div>
         </div>
-        <div style="display:flex;align-items:center;gap:12px">
-          ${!answered ? `
-            <div id="q-timer" style="font-size:13px;font-weight:700;color:${isOverLimit ? 'var(--danger)' : 'var(--text-2)'};background:${isOverLimit ? 'var(--danger-soft)' : 'var(--surface-2)'};padding:4px 10px;border-radius:12px;display:flex;align-items:center;gap:6px">
-              ⏱️ 本题 ${currentQElapsed}s / 建议 ${currentQTimeLimit}s
-            </div>
-          ` : ''}
-          <button class="btn ghost sm" id="exam-exit">退出</button>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn sm" id="exam-prev" ${e.current === 0 ? 'disabled' : ''}>上一题</button>
+          <button class="btn sm primary" id="exam-next-top">
+            ${e.current === total - 1 ? '交卷' : '下一题'}
+          </button>
+          <button class="btn ghost sm" id="exam-exit" style="margin-left:10px">退出</button>
         </div>
       </div>
-      
-      ${isOverLimit && !answered ? `
-        <div style="margin-bottom:12px;padding:10px 14px;background:var(--danger-soft);border:1px solid var(--danger);border-radius:8px;color:var(--danger);font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px">
-          <span style="font-size:16px">⚠️</span>
-          本题已严重超时！考场上请立刻标记跳过，留时间给其他高性价比的题。
-        </div>
-      ` : ''}
 
       <div class="progress-bar" style="margin-bottom:16px">
         <div class="progress-fill" style="width:${progress}%"></div>
@@ -1320,20 +1357,16 @@ function renderExamRunning(view) {
       <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
         <span class="tag primary">${esc(q.module)}</span>
         <span class="tag gray">${esc(q.type)}</span>
-        ${(q.knowledgePoints||[]).map(k => `<span class="tag gray">${esc(k)}</span>`).join('')}
       </div>
 
       <div style="font-size:15px;line-height:1.8;color:var(--text);padding:16px;background:var(--bg);border-radius:10px;margin-bottom:18px;white-space:pre-wrap;word-break:break-word">${renderStem(q.stem)}</div>
 
       <div style="display:flex;flex-direction:column;gap:10px">
         ${q.options.map((opt, i) => {
+          // 只标出用户选中的，不标对错
           let cls = 'exam-opt';
-          if (answered) {
-            if (i === q.correctIdx) cls += ' correct';
-            else if (i === q.selected) cls += ' wrong';
-            else cls += ' dim';
-          }
-          return `<button class="${cls}" data-exam-opt="${i}" ${answered ? 'disabled' : ''}>
+          if (q.selected === i) cls += ' correct'; // 借用绿色的边框样式表示已选中
+          return `<button class="${cls}" data-exam-opt="${i}">
             <span class="lbl">${String.fromCharCode(65 + i)}.</span>${esc(opt)}
           </button>`;
         }).join('')}
@@ -1341,71 +1374,52 @@ function renderExamRunning(view) {
     </div>
   `;
 
-  if (answered) {
-    const ok = q.selected === q.correctIdx;
-    html += `
-      <div class="card">
-        <div style="text-align:center;font-size:15px;font-weight:700;color:${ok ? 'var(--success)' : 'var(--danger)'};margin-bottom:12px">
-          ${ok ? '✅ 回答正确' : `❌ 答错，正确答案是 ${String.fromCharCode(65 + q.correctIdx)}`}
-        </div>
-        ${q.originalExplanation ? `<div style="font-size:13px;line-height:1.7;color:var(--text-2);padding:12px 14px;background:var(--warn-soft);border-left:3px solid var(--warn);border-radius:6px">${esc(q.originalExplanation)}</div>` : ''}
-        <div class="actions" style="justify-content:center">
-          <button class="btn primary" id="exam-next">
-            ${e.current === total - 1 ? '交卷' : '下一题 →'}
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
   view.innerHTML = html;
 
   // 计时器
-  // 计时器
   clearInterval(window._examTimer);
-  if (e.stage === 'running') {
-    window._examTimer = setInterval(() => {
-      // 总时间
-      const s = Math.floor((Date.now() - e.startTime) / 1000);
-      const m = String(Math.floor(s / 60)).padStart(2, '0');
-      const ss = String(s % 60).padStart(2, '0');
-      const el = document.getElementById('exam-timer');
-      if (el) el.textContent = `总用时 ${m}:${ss}`;
-      
-      // 单题时间
-      if (!q.answered) {
-        const qs = Math.floor((Date.now() - q._startTime) / 1000);
-        const qEl = document.getElementById('q-timer');
-        if (qEl) {
-          const over = qs > currentQTimeLimit * 1.5;
-          qEl.innerHTML = `⏱️ 本题 ${qs}s / 建议 ${currentQTimeLimit}s`;
-          if (over) {
-            qEl.style.color = 'var(--danger)';
-            qEl.style.background = 'var(--danger-soft)';
-          }
-        }
-      }
-    }, 1000);
-  }
+  window._examTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - e.startTime) / 1000);
+    const m = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    const el = document.getElementById('exam-timer');
+    if (el) el.textContent = `用时 ${m}:${ss}`;
+  }, 1000);
 
+  // 选项点击
   view.querySelectorAll('[data-exam-opt]').forEach(btn => {
-    btn.addEventListener('click', () => selectExamOption(parseInt(btn.dataset.examOpt)));
+    btn.addEventListener('click', () => {
+      q.selected = parseInt(btn.dataset.examOpt);
+      // 更新 UI 选中态
+      view.querySelectorAll('.exam-opt').forEach(el => el.classList.remove('correct'));
+      btn.classList.add('correct');
+      
+      // 如果勾选了"自动跳下一题"（这里默认：如果是最后一题就不自动跳，否则延时 200ms 跳）
+      if (e.current < e.quiz.length - 1) {
+        setTimeout(() => {
+          e.current++;
+          renderView();
+        }, 200);
+      }
+    });
   });
 
+  // 上一题 / 下一题
+  view.querySelector('#exam-prev').addEventListener('click', () => {
+    if (e.current > 0) { e.current--; renderView(); }
+  });
+  view.querySelector('#exam-next-top').addEventListener('click', () => {
+    if (e.current === total - 1) finishExam();
+    else { e.current++; renderView(); }
+  });
   view.querySelector('#exam-exit').addEventListener('click', () => {
-    if (e.results.length && !confirm('退出后本次作答不保存，确定？')) return;
+    if (!confirm('退出后本次作答不保存，确定？')) return;
     clearInterval(window._examTimer);
     e.stage = 'idle';
     e.results = [];
     renderView();
   });
-
-  view.querySelector('#exam-next').addEventListener('click', () => {
-    if (e.current === total - 1) finishExam();
-    else { e.current++; renderView(); }
-  });
 }
-
 function selectExamOption(idx) {
   const e = state.exam;
   const q = e.quiz[e.current];
@@ -1434,16 +1448,44 @@ function finishExam() {
   clearInterval(window._examTimer);
   e.endTime = Date.now();
   e.stage = 'finished';
+  
+  // 将所有作答结果同步到全局 questions 并记录
+  e.quiz.forEach(q => {
+    const g = questions.find(x => x.id === q.id);
+    if (g && q.selected !== null) {
+      const isRight = q.selected === q.correctIdx;
+      const h = g.attemptHistory || [];
+      h.unshift({ t: Date.now(), sel: q.selected, ok: isRight });
+      g.attemptHistory = h.slice(0, ATTEMPT_HISTORY_LIMIT);
+      updateQuestionMastery(g, isRight);
+    }
+  });
+  
+  // 生成记录
+  const record = {
+    id: uid(),
+    date: Date.now(),
+    module: e.filter.module,
+    type: e.filter.type,
+    total: e.quiz.length,
+    right: e.quiz.filter(q => q.selected === q.correctIdx).length,
+    quiz: e.quiz.map(q => ({ id: q.id, selected: q.selected, correctIdx: q.correctIdx }))
+  };
+  saveExamRecord(record);
+  
   renderView();
 }
 
 /* ---- 完成页 ---- */
 function renderExamFinished(view) {
   const e = state.exam;
-  const total = e.results.length;
-  const right = e.results.filter(r => r.isRight).length;
+  
+  // 核心修复：完全基于 e.quiz 统计，杜绝结果翻倍
+  const total = e.quiz.length;
+  const right = e.quiz.filter(q => q.selected === q.correctIdx).length;
   const wrong = total - right;
   const rate = total ? Math.round(right / total * 100) : 0;
+  
   const dur = Math.max(1, Math.floor((e.endTime - e.startTime) / 1000));
   const mm = String(Math.floor(dur / 60)).padStart(2, '0');
   const ss = String(dur % 60).padStart(2, '0');
@@ -1452,46 +1494,18 @@ function renderExamFinished(view) {
   const ideal = calcIdealTime(e.quiz);
   const rawRatio = ideal > 0 ? dur / ideal : 1;
   const ratio = Math.max(0.5, Math.min(1.5, rawRatio));
-  // 映射到 [0, π]：0=右=最快，π=左=最慢，π/2=正常
   const tAngle = Math.PI * (ratio - 0.5);
   const dotX = 120 + 88 * Math.cos(tAngle);
   const dotY = 120 - 88 * Math.sin(tAngle);
 
   let speedLabel, speedColor, speedBg;
-  if (ratio <= 0.85) {
-    speedLabel = '速度很快 · 优于预期';
-    speedColor = '#16a34a';
-    speedBg = 'rgba(22,163,74,0.12)';
-  } else if (ratio <= 1.15) {
-    speedLabel = '速度正常';
-    speedColor = '#65a30d';
-    speedBg = 'rgba(101,163,13,0.12)';
-  } else {
-    speedLabel = '速度偏慢 · 建议提速';
-    speedColor = '#d97706';
-    speedBg = 'rgba(217,119,6,0.12)';
-  }
-    // 计算有多少题严重超时（假设某题实际耗时超过其建议耗时的1.5倍）
-  let overtimeCount = 0;
-  e.results.forEach(r => {
-    const q = e.quiz.find(x => x.id === r.qid);
-    if (q && r.timeSpent) {
-      const limit = TYPE_TIME_PER_Q[q.type] || MODULE_TIME_PER_Q[q.module] || 60;
-      if (r.timeSpent > limit * 1.5) overtimeCount++;
-    }
-  });
+  if (ratio <= 0.85) { speedLabel = '速度很快'; speedColor = '#16a34a'; speedBg = 'rgba(22,163,74,0.12)'; }
+  else if (ratio <= 1.15) { speedLabel = '速度正常'; speedColor = '#65a30d'; speedBg = 'rgba(101,163,13,0.12)'; }
+  else { speedLabel = '速度偏慢'; speedColor = '#d97706'; speedBg = 'rgba(217,119,6,0.12)'; }
 
   /* --- 对错条 --- */
   const rightPct = total ? (right / total * 100) : 0;
   const wrongPct = total ? (wrong / total * 100) : 0;
-
-  const rateTag = rate >= 80 ? 'success' : rate >= 60 ? 'warn' : 'gray';
-
-  /* --- 错题列表 --- */
-  const wrongQs = e.results.filter(r => !r.isRight).map(r => {
-    const q = e.quiz.find(x => x.id === r.qid);
-    return q ? { ...q, selectedIdx: r.selected } : null;
-  }).filter(Boolean);
 
   let html = `
     <div class="card">
@@ -1500,13 +1514,12 @@ function renderExamFinished(view) {
           <div class="card-title">考试完成</div>
           <div class="card-sub">共 ${total} 题 · ${esc(e.filter.module === 'all' ? '全部模块' : e.filter.module)}${e.filter.type !== 'all' ? ' · ' + esc(e.filter.type) : ''}</div>
         </div>
-        <span class="tag ${rateTag}" style="font-size:12px;padding:5px 12px">
+        <span class="tag ${rate >= 80 ? 'success' : rate >= 60 ? 'warn' : 'gray'}" style="font-size:12px;padding:5px 12px">
           正确率 ${rate}%
         </span>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:26px;padding:8px 0 4px">
-
+      <div style="display:flex;flex-direction:column;gap:20px;padding:8px 0 4px">
         <!-- 速度表 -->
         <div class="speed-gauge">
           <svg viewBox="0 0 240 150" aria-label="用时速度表">
@@ -1517,27 +1530,11 @@ function renderExamFinished(view) {
                 <stop offset="100%" stop-color="#16a34a"/>
               </linearGradient>
             </defs>
-            <!-- 底槽 -->
-            <path d="M 32 120 A 88 88 0 0 1 208 120"
-                  fill="none" stroke="var(--surface-2)" stroke-width="14" stroke-linecap="round"/>
-            <!-- 彩色弧 -->
-            <path d="M 32 120 A 88 88 0 0 1 208 120"
-                  fill="none" stroke="url(#gaugeGrad)" stroke-width="14"
-                  stroke-linecap="round" opacity="0.9"/>
-            <!-- 中心用时 -->
-            <text x="120" y="100" text-anchor="middle"
-                  font-size="30" font-weight="800" fill="var(--text)"
-                  font-family="ui-monospace, monospace" letter-spacing="1">${mm}:${ss}</text>
-            <text x="120" y="122" text-anchor="middle"
-                  font-size="11" fill="var(--text-3)" letter-spacing="2">用 时</text>
-            <!-- 两端标签 -->
-            <text x="32" y="142" text-anchor="start"
-                  font-size="11" fill="var(--text-3)">慢</text>
-            <text x="208" y="142" text-anchor="end"
-                  font-size="11" fill="var(--text-3)">快</text>
-            <!-- 指针圆点 -->
-            <circle cx="${dotX}" cy="${dotY}" r="8"
-                    fill="var(--card)" stroke="${speedColor}" stroke-width="3"/>
+            <path d="M 32 120 A 88 88 0 0 1 208 120" fill="none" stroke="var(--surface-2)" stroke-width="14" stroke-linecap="round"/>
+            <path d="M 32 120 A 88 88 0 0 1 208 120" fill="none" stroke="url(#gaugeGrad)" stroke-width="14" stroke-linecap="round" opacity="0.9"/>
+            <text x="120" y="100" text-anchor="middle" font-size="30" font-weight="800" fill="var(--text)" font-family="ui-monospace, monospace" letter-spacing="1">${mm}:${ss}</text>
+            <text x="120" y="122" text-anchor="middle" font-size="11" fill="var(--text-3)" letter-spacing="2">用 时</text>
+            <circle cx="${dotX}" cy="${dotY}" r="8" fill="var(--card)" stroke="${speedColor}" stroke-width="3"/>
             <circle cx="${dotX}" cy="${dotY}" r="3" fill="${speedColor}"/>
           </svg>
           <div class="speed-rating" style="background:${speedBg};color:${speedColor}">
@@ -1553,75 +1550,80 @@ function renderExamFinished(view) {
             ${right > 0 && wrong > 0 ? '<div class="bar-divider"></div>' : ''}
             ${wrong > 0 ? `<div class="bar-wrong" style="flex: 0 0 ${wrongPct}%"><span>✗ 错 ${wrong} 题</span></div>` : ''}
           </div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-3);padding:0 4px">
-            <span>${right} 对</span>
-            <span>${wrong} 错</span>
-          </div>
-        </div>
-      </div>
-      <!-- 涂卡与超时提醒 -->
-      <div style="background:var(--primary-soft);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:14px 18px;margin-top:16px">
-        <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px">💡 考场实战建议</div>
-        <div style="font-size:13px;line-height:1.7;color:var(--text)">
-          本次练习中，你有 <b>${overtimeCount} 道题</b> 严重超时（超过建议用时的1.5倍）。<br>
-          ${overtimeCount > 0 ? '这类题在真实考场上应该果断标记跳过，最后统一蒙，以免挤占资料分析和言语理解的得分时间。' : '你的单题时间控制得很好。'}
-          <br><br>
-          📌 <b>别忘了：</b>真实考试中至少留出 <b>5-8 分钟</b> 集中涂卡！
         </div>
       </div>
 
-      <div class="actions" style="margin-top:22px;justify-content:center">
+      <div class="actions" style="margin-top:20px;justify-content:center">
         <button class="btn primary" id="exam-again">再来一次</button>
         <button class="btn" id="exam-back">返回筛选</button>
       </div>
     </div>
-  `;
 
-  if (wrongQs.length) {
-    html += `
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">错题回顾</div>
-            <div class="card-sub">${wrongQs.length} 道 · 正确答案已标绿，你的错误选择已标红</div>
-          </div>
+    <!-- 题目列表区 -->
+    <div class="card">
+      <div class="card-head" style="border-bottom:none;margin-bottom:0;padding-bottom:0">
+        <div>
+          <div class="card-title">题目详情</div>
         </div>
-        ${wrongQs.map((q, i) => `
-          <div class="wrong-review-item">
-            <div class="wrong-review-idx">${i + 1}</div>
-            <div class="wrong-review-body">
-              <div class="wrong-review-stem">${renderStem(q.stem)}</div>
-              <div class="wrong-review-tags">
-                <span class="tag gray">${esc(q.module)} · ${esc(q.type)}</span>
-                ${(q.knowledgePoints || []).slice(0, 3).map(k => `<span class="tag gray">${esc(k)}</span>`).join('')}
+        <div style="display:flex;gap:8px">
+          <button class="btn sm ${e.showOnlyWrong ? '' : 'primary'}" id="filter-all">全部</button>
+          <button class="btn sm ${e.showOnlyWrong ? 'primary' : ''}" id="filter-wrong">只看错题 (${wrong})</button>
+        </div>
+      </div>
+    </div>
+    
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${e.quiz.map((q, i) => {
+        const isRight = q.selected === q.correctIdx;
+        if (e.showOnlyWrong && isRight) return '';
+        
+        return `
+          <div class="card" style="margin:0;padding:16px;border-left:4px solid ${isRight ? 'var(--success)' : 'var(--danger)'}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+                  <span class="tag ${isRight ? 'success' : ''}" style="${isRight ? '' : 'background:var(--danger-soft);color:var(--danger)'}">
+                    第 ${i+1} 题 · ${isRight ? '对' : '错'}
+                  </span>
+                  ${!isRight ? `<span style="font-size:12px;color:var(--text-3)">你选 ${String.fromCharCode(65+q.selected)} · 正确 ${String.fromCharCode(65+q.correctIdx)}</span>` : ''}
+                </div>
+                <div style="font-size:13.5px;line-height:1.6;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
+                  ${renderStem(q.stem)}
+                </div>
               </div>
-              <div class="wrong-review-choice">
-                <span class="badge-wrong">你选 ${String.fromCharCode(65 + q.selectedIdx)}</span>
-                <span style="color:var(--text-3);font-size:11px">→</span>
-                <span class="badge-right">正确 ${String.fromCharCode(65 + q.correctIdx)}</span>
-              </div>
-              <div class="wrong-review-options">
-                ${q.options.map((opt, j) => {
-                  let cls = 'wrong-review-opt';
-                  if (j === q.correctIdx) cls += ' correct';
-                  else if (j === q.selectedIdx) cls += ' wrong';
-                  return `<div class="${cls}"><span class="lbl">${String.fromCharCode(65 + j)}.</span>${esc(opt)}</div>`;
-                }).join('')}
+              <div style="flex-shrink:0">
+                <button class="btn sm primary" data-view-analysis="${q.id}">查看解析</button>
               </div>
             </div>
           </div>
-        `).join('')}
-      </div>
-    `;
-  }
+        `;
+      }).join('')}
+    </div>
+  `;
 
   view.innerHTML = html;
 
+  view.querySelector('#filter-all').addEventListener('click', () => { e.showOnlyWrong = false; renderView(); });
+  view.querySelector('#filter-wrong').addEventListener('click', () => { e.showOnlyWrong = true; renderView(); });
   view.querySelector('#exam-again').addEventListener('click', () => startExam());
   view.querySelector('#exam-back').addEventListener('click', () => {
     e.stage = 'idle';
-    e.results = [];
     renderView();
+  });
+
+  // 跳转详情
+  view.querySelectorAll('[data-view-analysis]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.viewAnalysis;
+      state.mode = 'browse';
+      state.browse.selectedId = id;
+      state.browse.detail = { question: questions.find(x => x.id === id), similar: [] };
+      state.browse.generating = { analysis: false, similar: false };
+      state.browse.editing = false;
+      state.browse.returnMode = 'exam'; // 标记从考试跳转
+      renderView();
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    });
   });
 }
 
@@ -3828,9 +3830,18 @@ function renderBrowseDetail(view) {
 
   /* ---- 事件绑定 ---- */
   view.querySelector('#detail-back').addEventListener('click', () => {
-    state.browse.pendingScrollRestore = state.browse.listScrollY || 0;
-    state.browse.selectedId = null;
-    state.browse.detail = null;
+    if (state.browse.returnMode === 'exam') {
+      state.mode = 'exam';
+      state.browse.returnMode = 'browse'; // 复位
+    } else if (state.browse.returnMode === 'examRecord') {
+      state.mode = 'exam';
+      state.exam.stage = 'history_detail';
+      state.browse.returnMode = 'browse';
+    } else {
+      state.browse.pendingScrollRestore = state.browse.listScrollY || 0;
+      state.browse.selectedId = null;
+      state.browse.detail = null;
+    }
     renderView();
     persistBrowseState();
   });
@@ -6032,4 +6043,127 @@ function renderView() {
   else if (state.mode === 'analysis') renderAnalysis(view);
   else if (state.mode === 'settings') renderSettings(view);
   updateStatusChip();
+}
+
+/* ============ 考试历史记录 ============ */
+async function renderExamHistoryList(view) {
+  const records = await getMeta('examRecords') || [];
+  
+  let html = `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">考试记录</div>
+          <div class="card-sub">最近 20 次 · 点击查看答题卡</div>
+        </div>
+        <button class="btn ghost sm" id="history-back">返回</button>
+      </div>
+      <div>
+        ${records.length ? records.map(r => {
+          const rate = r.total ? Math.round(r.right / r.total * 100) : 0;
+          const rateColor = rate >= 80 ? 'var(--success)' : rate >= 60 ? 'var(--warn)' : 'var(--danger)';
+          
+          return `
+            <div class="exam-record-row" data-record-id="${r.id}">
+              <div class="exam-record-info">
+                <div class="exam-record-tags">
+                  <span class="tag primary">${r.module === 'all' ? '全部模块' : r.module}</span>
+                  ${r.type !== 'all' ? `<span class="tag gray">${r.type}</span>` : ''}
+                  <span class="exam-record-date">${new Date(r.date).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+                </div>
+                <div class="exam-record-stat">
+                  共 <b>${r.total}</b> 题 · 答对 <b style="color:var(--success)">${r.right}</b> 题 · 答错 <b style="color:var(--danger)">${r.total - r.right}</b> 题
+                </div>
+              </div>
+              
+              <div class="exam-record-score">
+                <div class="exam-record-rate" style="color:${rateColor}">${rate}%</div>
+                <div class="exam-record-rate-label">正确率</div>
+              </div>
+              
+              <svg class="exam-record-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </div>
+          `;
+        }).join('') : `<div class="empty" style="padding:40px 0;text-align:center;color:var(--text-3);font-size:13px">暂无考试记录</div>`}
+      </div>
+    </div>
+  `;
+  view.innerHTML = html;
+  
+  view.querySelector('#history-back').addEventListener('click', () => {
+    state.exam.stage = 'idle';
+    renderView();
+  });
+  
+  view.querySelectorAll('.exam-record-row').forEach(el => {
+    el.addEventListener('click', () => {
+      state.exam.currentRecordId = el.dataset.recordId;
+      state.exam.stage = 'history_detail';
+      renderView();
+    });
+  });
+}
+
+async function renderExamHistoryDetail(view) {
+  const records = await getMeta('examRecords') || [];
+  const record = records.find(r => r.id === state.exam.currentRecordId);
+  if (!record) { state.exam.stage = 'history'; renderView(); return; }
+  
+  let html = `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">答题卡</div>
+          <div class="card-sub">${new Date(record.date).toLocaleDateString()} · 点击题号查看解析</div>
+        </div>
+        <button class="btn ghost sm" id="history-detail-back">返回记录</button>
+      </div>
+
+      <!-- 图例 -->
+      <div style="display:flex;gap:16px;font-size:12px;color:var(--text-3);margin-bottom:16px;padding-bottom:12px;border-bottom:1px dashed var(--border)">
+        <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:3px;background:var(--success-soft);border:1px solid var(--success)"></span> 正确</div>
+        <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:3px;background:var(--danger-soft);border:1px solid var(--danger)"></span> 错误</div>
+        <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:3px;background:var(--surface-2);border:1px solid var(--border)"></span> 未作答</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(50px, 1fr));gap:10px;margin-top:16px">
+      
+      <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(50px, 1fr));gap:10px;margin-top:16px">
+        ${record.quiz.map((q, i) => {
+          const isRight = q.selected === q.correctIdx;
+          const notAnswered = q.selected === null;
+          return `
+            <button class="btn" data-view-q="${q.id}" style="
+              height:44px; font-size:14px; font-weight:700; border-radius:8px;
+              background:${notAnswered ? 'var(--surface-2)' : isRight ? 'var(--success-soft)' : 'var(--danger-soft)'};
+              color:${notAnswered ? 'var(--text-3)' : isRight ? 'var(--success)' : 'var(--danger)'};
+              border:1px solid ${notAnswered ? 'var(--border)' : isRight ? 'var(--success)' : 'var(--danger)'};
+            ">${i+1}</button>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+  view.innerHTML = html;
+  
+  view.querySelector('#history-detail-back').addEventListener('click', () => {
+    state.exam.stage = 'history';
+    renderView();
+  });
+  
+  view.querySelectorAll('[data-view-q]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.viewQ;
+      state.mode = 'browse';
+      state.browse.selectedId = id;
+      state.browse.detail = { question: questions.find(x => x.id === id), similar: [] };
+      state.browse.generating = { analysis: false, similar: false };
+      state.browse.editing = false;
+      state.browse.returnMode = 'examRecord'; // 标记返回答题卡
+      renderView();
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    });
+  });
 }

@@ -246,6 +246,15 @@ async function deleteQuestion(id) {
 }
 async function getMeta(key) { if (!useIDB) return null; try { const r = await idbGet('meta', key); return r ? r.value : null; } catch { return null; } }
 async function setMeta(key, value) { if (!useIDB) return; try { await idbPut('meta', { key, value }); } catch (e) { console.warn(e); } }
+async function saveExamRecord(record) {
+  if (!useIDB) return;
+  try {
+    let list = await getMeta('examRecords') || [];
+    list.unshift(record); // 最新记录在前
+    if (list.length > 20) list = list.slice(0, 20); // 只保留最近 20 次
+    await setMeta('examRecords', list);
+  } catch (e) { console.warn('保存考试记录失败', e); }
+}
 async function clearAllStores() {
   if (useIDB) {
     await idbClear('questions');
