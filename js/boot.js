@@ -51,6 +51,12 @@ document.querySelectorAll('.nav button').forEach(btn => {
         if (typeof w.lastPracticedAt !== 'number') w.lastPracticedAt = 0;
         if (!Array.isArray(w.distractors)) w.distractors = [];
         if (!Array.isArray(w.synonyms)) w.synonyms = [];
+
+        // 兼容老数据：把字符串干扰项升级为对象
+        w.distractors = w.distractors.map(d => {
+          if (typeof d === 'string') return { word: '', definition: d };
+          return { word: String(d.word || ''), definition: String(d.definition || '') };
+        }).filter(d => d.definition);
       });
       settings = (await getMeta('settings')) || {};
       deletedIds = (await getMeta('deletedIds')) || [];

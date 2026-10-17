@@ -193,28 +193,23 @@ function scheduleFlush() {
     } catch (e) { console.warn('IDB 写入失败：', e); }
   }, 300);
 }
+
 function saveWord(w) {
   w.updatedAt = Date.now();
   const idx = words.findIndex(x => x.id === w.id);
   if (idx >= 0) words[idx] = w; else words.push(w);
   dirtyW.add(w.id);
   scheduleFlush();
-  schedulePush();
-  invalidateStorageCache();
 }
 
 function saveWordsAll() {
   words.forEach(w => dirtyW.add(w.id));
   scheduleFlush();
-  schedulePush();
-  invalidateStorageCache();
 }
 
 async function deleteWord(id) {
   words = words.filter(w => w.id !== id);
   if (useIDB) { try { await idbDelete('words', id); } catch (e) { console.warn(e); } }
-  schedulePush();
-  invalidateStorageCache();
 }
 function saveQuestion(q) {
   q.updatedAt = Date.now();

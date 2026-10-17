@@ -2184,16 +2184,20 @@ async function fetchWordInfo(word) {
   const sys = `你是行测逻辑填空备考助手。用户输入一个汉语词语，返回严格 JSON：
 {
   "correct": "该词准确释义，30字以内",
-  "distractors": ["易混词1的释义", "易混词2的释义", "易混词3的释义"],
+  "distractors": [
+    { "word": "易混词1（如：截然相反）", "definition": "易混词1的准确释义" },
+    { "word": "易混词2", "definition": "释义" },
+    { "word": "易混词3", "definition": "释义" }
+  ],
   "synonyms": [
     { "word": "近义词1（2-4字）", "definition": "该近义词的释义，30字以内" },
     { "word": "近义词2", "definition": "释义" }
   ],
-  "note": "该词与近义词的辨析要点，50字以内"
+  "note": "该词与近义词/易混词的辨析要点，50字以内"
 }
 规则：
-1. distractors 是"易混词的释义"（不是词本身），要与 synonyms 区分开。
-2. synonyms 是语义相近的词，2-4 个，必须是真实存在的常见词。
+1. distractors 是"易混词及其释义"，必须真实存在且容易混淆。不能是词本身。
+2. synonyms 是语义相近的词，2-4 个。
 3. 只返回 JSON，不要 markdown 代码块。`;
 
   const body = {
@@ -2220,7 +2224,8 @@ async function fetchWordInfo(word) {
   return {
     correct: String(parsed.correct || '').trim(),
     distractors: (Array.isArray(parsed.distractors) ? parsed.distractors : [])
-      .map(s => String(s).trim()).filter(Boolean).slice(0, 3),
+      .map(d => typeof d === 'string' ? { word: '', definition: d } : { word: String(d.word || '').trim(), definition: String(d.definition || '').trim() })
+      .filter(d => d.definition).slice(0, 3),
     synonyms: (Array.isArray(parsed.synonyms) ? parsed.synonyms : [])
       .map(s => ({ word: String(s.word || '').trim(), definition: String(s.definition || '').trim() }))
       .filter(s => s.word && s.definition).slice(0, 4),
@@ -2306,69 +2311,91 @@ function renderWordsPractice(view) {
   if (state.wp.finished) {
     const total = state.wp.session.total;
     const correct = state.wp.session.correct;
+    const wrong = total - correct;
     const rate = total ? Math.round(correct / total * 100) : 0;
+    
     const rateColor = rate >= 80 ? 'var(--success)' : rate >= 60 ? 'var(--warn)' : 'var(--danger)';
+    const rateBg = rate >= 80 ? 'var(--success-soft)' : rate >= 60 ? 'var(--warn-soft)' : 'var(--danger-soft)';
+    const rateText = rate >= 80 ? '优秀' : rate >= 60 ? '及格' : '需加强';
+
     const wrongWords = state.wp.wrongIds.map(id => words.find(w => w.id === id)).filter(Boolean);
 
     let html = `
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">本轮完成</div>
-            <div class="card-sub">已练习 ${total} 题</div>
+      <div class="card" style="padding:0;overflow:hidden;border:1px solid var(--border)">
+        <!-- 顶部成绩横幅（使用 CSS 变量自适应明暗主题） -->
+        <div style="background:linear-gradient(135deg, var(--bg) 0%, var(--primary-soft) 100%); padding:32px 24px; text-align:center; border-bottom:1px solid var(--border); position:relative">
+          
+          <div style="display:inline-flex; flex-direction:column; align-items:center; justify-content:center; width:96px; height:96px; border-radius:50%; background:${rateBg}; color:${rateColor}; margin-bottom:16px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); border: 4px solid var(--card)">
+            <div style="font-size:28px; font-weight:800; line-height:1">${rate}%</div>
+            <div style="font-size:11px; font-weight:700; margin-top:4px">${rateText}</div>
           </div>
-          <span class="tag ${rate >= 80 ? 'success' : rate >= 60 ? 'warn' : 'gray'}" style="font-size:12px;padding:5px 12px">
-            正确率 ${rate}%
-          </span>
-        </div>
-
-        <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-top:8px">
-          <div class="stat">
-            <div class="stat-num">${total}<span class="unit">题</span></div>
-            <div class="stat-label">总题数</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num" style="color:var(--success)">${correct}<span class="unit">题</span></div>
-            <div class="stat-label">答对</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num" style="color:var(--danger)">${total - correct}<span class="unit">题</span></div>
-            <div class="stat-label">答错</div>
+          
+          <div style="font-size:20px; font-weight:800; color:var(--text); margin-bottom:8px; letter-spacing:-0.2px">本轮练习完成</div>
+          <div style="font-size:14px; color:var(--text-2); line-height:1.6">
+            共作答 <b>${total}</b> 个词语，答对 <b style="color:var(--success)">${correct}</b> 个，答错 <b style="color:var(--danger)">${wrong}</b> 个
           </div>
         </div>
 
-        <div class="actions" style="margin-top:20px;justify-content:center">
-          <button class="btn primary" id="wp-restart">再来一轮</button>
-          <button class="btn" id="wp-back-filter">返回设置</button>
+        <!-- 数据卡片区 -->
+        <div style="padding:24px">
+          <div class="actions" style="margin-top:24px;justify-content:center">
+            <button class="btn primary" id="wp-restart" style="padding:10px 32px;font-size:14px">🔄 再来一轮</button>
+            <button class="btn" id="wp-back-filter">返回设置</button>
+          </div>
         </div>
       </div>
     `;
 
     if (wrongWords.length) {
       html += `
-        <div class="card">
+        <div class="card" style="margin-top:16px">
           <div class="card-head">
             <div>
-              <div class="card-title">本轮错词</div>
-              <div class="card-sub">${wrongWords.length} 个 · 建议加入笔记重点复习</div>
+              <div class="card-title">本轮错词本</div>
+              <div class="card-sub">${wrongWords.length} 个词语 · 点击卡片展开查看辨析</div>
             </div>
           </div>
-          ${wrongWords.map(w => `
-            <div class="word-row" style="margin-bottom:6px">
-              <div class="word-row-word" title="${esc(w.word)}">${esc(w.word)}</div>
-              <div class="word-row-def" title="${esc(w.correct)}">${esc(w.correct)}</div>
-              <span class="word-row-stat bad">错 ${w.wrong || 0}</span>
-              <span class="word-row-stat good">对 ${w.right || 0}</span>
-            </div>
-          `).join('')}
+          <div style="margin-top:8px">
+            ${wrongWords.map(w => `
+              <div class="word-row" style="margin-bottom:8px">
+                <div class="word-row-word" title="${esc(w.word)}">${esc(w.word)}</div>
+                <div class="word-row-def" title="${esc(w.correct)}">${esc(w.correct)}</div>
+                <span class="word-row-stat bad">累计错 ${w.wrong || 0}</span>
+                <span class="word-row-chevron" style="color:var(--text-3);font-size:11px;margin-left:4px">展开 ⌄</span>
+                
+                <div class="word-row-expand">
+                  <div class="expand-inner">
+                    <div class="expand-section">
+                      <div class="expand-label">近义词辨析</div>
+                      ${(w.synonyms && w.synonyms.length) 
+                        ? w.synonyms.map(s => `<div class="syn-line"><b>${esc(s.word)}</b>${esc(s.definition)}</div>`).join('')
+                        : '<div style="font-size:12.5px;color:var(--text-3)">暂无近义词</div>'}
+                    </div>
+                    <div class="expand-section">
+                      <div class="expand-label">笔记</div>
+                      ${w.note ? `<div class="note-line">${esc(w.note).replace(/\n/g, '<br>')}</div>` : '<div style="font-size:12.5px;color:var(--text-3)">暂无笔记</div>'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
         </div>
       `;
     }
 
     view.innerHTML = html;
 
+    // 绑定错词的展开/收起事件（手风琴效果）
+    view.querySelectorAll('.word-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const isExpanded = row.classList.contains('expanded');
+        view.querySelectorAll('.word-row.expanded').forEach(r => r.classList.remove('expanded'));
+        row.classList.toggle('expanded', !isExpanded);
+      });
+    });
+
     view.querySelector('#wp-restart').addEventListener('click', () => {
-      // 重开一轮
       state.wp.current = null;
       state.wp.answered = false;
       state.wp.selected = null;
@@ -2511,10 +2538,38 @@ function renderWordsPractice(view) {
   if (state.wp.answered) {
     const ok = q.options[state.wp.selected] && q.options[state.wp.selected].isCorrect;
     html += `<div class="feedback ${ok ? 'ok' : 'no'}">${ok ? '✅ 回答正确' : '❌ 回答错误'}</div>`;
+    
     if (q.note) html += `<div class="explain">💡 ${esc(q.note)}</div>`;
-    const isLast = state.wp.session.total >= total;
-    html += `<div class="actions"><button class="btn primary" id="nextW">${isLast ? '完成练习' : '下一题 →'}</button></div>`;
+    
+    // 新增：全选项词语辨析清单
+    html += `
+      <div style="margin-top:16px;background:var(--bg);border-radius:10px;padding:16px;border:1px solid var(--border)">
+        <div style="font-size:12px;font-weight:700;color:var(--text-3);margin-bottom:12px;letter-spacing:0.3px">📋 选项对应词语及辨析</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${q.options.map((o, i) => {
+            const isRight = o.isCorrect;
+            const isWrongSelect = (i === state.wp.selected && !isRight);
+            const bg = isRight ? 'var(--success-soft)' : isWrongSelect ? 'var(--danger-soft)' : 'var(--card)';
+            const color = isRight ? 'var(--success)' : isWrongSelect ? 'var(--danger)' : 'var(--text-2)';
+            const label = String.fromCharCode(65 + i);
+            
+            return `
+              <div style="display:flex;gap:10px;align-items:flex-start;background:${bg};padding:10px 12px;border-radius:8px;border:1px solid ${isRight ? 'var(--success)' : isWrongSelect ? 'var(--danger)' : 'var(--border)'}">
+                <div style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:${color};color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${label}</div>
+                <div style="flex:1;min-width:0;font-size:13px;line-height:1.6">
+                  ${o.word ? `<b style="color:${color};font-size:14px;margin-right:6px">${esc(o.word)}</b>` : `<span style="color:var(--text-3);margin-right:6px">[无对应词]</span>`}
+                  <span style="color:var(--text)">${esc(o.text)}</span>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+    
+    html += `<div class="actions"><button class="btn primary" id="nextW">下一题 →</button></div>`;
   } else {
+    // 如果没作答，保持原来的选项渲染逻辑，不过要注意 o 现在是对象
     html += `<div class="actions"><button class="btn" id="skipW">换一题</button></div>`;
   }
   html += `</div>`;
@@ -2580,25 +2635,44 @@ function buildWordQuiz() {
   if (!picked) return null;
 
   const correct = (picked.correct || '').trim();
-  const opts = [correct];
-  const used = new Set([correct]);
+  const usedTexts = new Set([correct]);
+  const opts = [{ text: correct, word: picked.word, isCorrect: true }];
 
-  // 优先用近义词定义
-  const syn = shuffle((picked.synonyms || []).map(s => s.definition).filter(t => t && !used.has(t)));
-  for (const t of syn) { if (opts.length >= 4) break; opts.push(t); used.add(t); }
-
-  // 补充自定义干扰项
-  const cst = shuffle((picked.distractors || []).map(d => (d || '').trim()).filter(t => t && !used.has(t)));
-  for (const t of cst) { if (opts.length >= 4) break; opts.push(t); used.add(t); }
-
-  // 不够就从其他词条拿
-  if (opts.length < 4) {
-    const others = shuffle([...new Set(
-      words.filter(x => x.id !== picked.id).map(x => (x.correct || '').trim()).filter(t => t && !used.has(t))
-    )]);
-    for (const t of others) { if (opts.length >= 4) break; opts.push(t); used.add(t); }
+  // 1. 优先用近义词定义
+  const syn = shuffle((picked.synonyms || []).filter(s => s.definition && !usedTexts.has(s.definition)));
+  for (const s of syn) {
+    if (opts.length >= 4) break;
+    opts.push({ text: s.definition, word: s.word, isCorrect: false });
+    usedTexts.add(s.definition);
   }
-  while (opts.length < 4) opts.push('（暂无干扰项 · 请补充词条）');
+
+  // 2. 补充自定义干扰项（此时已包含 word）
+  const cst = shuffle((picked.distractors || []).filter(d => {
+    const def = typeof d === 'string' ? d : d.definition;
+    return def && !usedTexts.has(def);
+  }));
+  for (const d of cst) {
+    if (opts.length >= 4) break;
+    const def = typeof d === 'string' ? d : d.definition;
+    const w = typeof d === 'string' ? '' : d.word;
+    opts.push({ text: def, word: w, isCorrect: false });
+    usedTexts.add(def);
+  }
+
+  // 3. 不够就从其他词条拿
+  if (opts.length < 4) {
+    const others = shuffle([...words.filter(x => x.id !== picked.id && x.correct && !usedTexts.has(x.correct))]);
+    for (const o of others) {
+      if (opts.length >= 4) break;
+      opts.push({ text: o.correct, word: o.word, isCorrect: false });
+      usedTexts.add(o.correct);
+    }
+  }
+  
+  while (opts.length < 4) {
+    opts.push({ text: '（暂无干扰项）', word: '', isCorrect: false });
+  }
+  
   const finalOpts = shuffle(opts);
 
   return {
@@ -2606,7 +2680,7 @@ function buildWordQuiz() {
     word: picked.word,
     note: picked.note || '',
     correct,
-    options: finalOpts.map(t => ({ text: t, isCorrect: t === correct }))
+    options: finalOpts
   };
 }
 
@@ -3238,8 +3312,8 @@ function openWordModal(editId) {
         <label>正确释义 <span class="req">*</span></label>
         <textarea id="f-correct" class="input" rows="2">${esc(editing.correct)}</textarea>
 
-        <label>自定义干扰项（每行一个，可留空）</label>
-        <textarea id="f-dist" class="input" rows="3">${esc((editing.distractors || []).join('\n'))}</textarea>
+        <label>自定义干扰项（可选，格式：词语|释义）</label>
+        <textarea id="f-dist" class="input" rows="3" placeholder="如：截然相反|两者完全对立，毫无共同之处\n天差地别|形容差距极大">${editing ? esc((editing.distractors || []).map(d => typeof d === 'string' ? d : (d.word ? `${d.word}|${d.definition}` : d.definition)).join('\n')) : ''}</textarea>
 
         <label>近义词</label>
         <div class="kp-wrap" id="synTags"></div>
@@ -3276,7 +3350,15 @@ function openWordModal(editId) {
     const dup = words.find(x => x.word === w && x.id !== editing.id);
     if (dup) { showToast(`「${w}」已存在`); return; }
 
-    const dist = overlay.querySelector('#f-dist').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 5);
+    const distText = overlay.querySelector('#f-dist').value;
+    const dist = distText.split('\n')
+      .map(line => {
+        const parts = line.split('|');
+        if (parts.length > 1) return { word: parts[0].trim(), definition: parts[1].trim() };
+        return { word: '', definition: line.trim() };
+      })
+      .filter(d => d.definition)
+      .slice(0, 5);
     const note = overlay.querySelector('#f-note').value.trim();
 
     const item = words.find(x => x.id === editing.id);
@@ -3328,7 +3410,15 @@ function bindEditModeEvents(overlay, editing) {
       return;
     }
 
-    const dist = overlay.querySelector('#f-dist').value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 5);
+    const distText = overlay.querySelector('#f-dist').value;
+    const dist = distText.split('\n')
+      .map(line => {
+        const parts = line.split('|');
+        if (parts.length > 1) return { word: parts[0].trim(), definition: parts[1].trim() };
+        return { word: '', definition: line.trim() };
+      })
+      .filter(d => d.definition)
+      .slice(0, 5);
     const note = overlay.querySelector('#f-note').value.trim();
 
     const item = words.find(x => x.id === editing.id);
