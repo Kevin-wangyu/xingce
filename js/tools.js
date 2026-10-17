@@ -659,3 +659,47 @@ function sortWordsByPinyin(list) {
   const collator = new Intl.Collator('zh-CN');
   return [...list].sort((a, b) => collator.compare(a.word || '', b.word || ''));
 }
+
+/* ============ 错题智能复习算法 ============ */
+const REVIEW_INTERVALS = [
+  1 * 24 * 3600 * 1000,   // 0级：1天后复习
+  3 * 24 * 3600 * 1000,   // 1级：3天后
+  7 * 24 * 3600 * 1000,   // 2级：7天后
+  14 * 24 * 3600 * 1000,  // 3级：14天后
+  30 * 24 * 3600 * 1000,  // 4级：30天后
+  90 * 24 * 3600 * 1000   // 5级：3个月后（基本算掌握了）
+];
+
+/* 获取某道题下次该复习的时间戳 */
+function getNextReviewTime(q) {
+  const level = Math.min(Math.max(q.masteryLevel || 0, 0), 5);
+  const interval = REVIEW_INTERVALS[level];
+  const base = q.lastPracticedAt || q.createdAt || Date.now();
+  // 错得越多的题，稍微提前复习
+  const penalty = Math.min((q.wrongCount || 0) * 0.1, 0.5);
+  return base + interval * (1 - penalty);
+}
+
+/* 更新掌握度（做对升级，做错降级） */
+function updateQuestionMastery(q, isRight) {
+  const now = Date.now();
+  q.lastPracticedAt = now;
+  
+  if (isRight) {
+    // 答对，掌握度 +1（最高5）
+    q.masteryLevel = Math.min((q.masteryLevel || 0) + 1, 5);
+    q.rightCount = (q.rightCount || 0) + 1;
+  } else {
+    // 答错，掌握度直接归零，重新背
+    q.masteryLevel = 0;
+    q.wrongCount = (q.wrongCount || 0) + 1;
+  }
+  
+  saveQuestion(q);
+}
+
+/* 获取今日待复习的所有题目 */
+function getTodayReviewQuestions() {
+  const now = Date.now();
+  return questions.filter(q => getNextReviewTime(q) <= now);
+}

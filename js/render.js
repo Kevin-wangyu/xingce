@@ -6,9 +6,13 @@ function toggleTheme() {
   applyTheme(next);
 }
 
-/* 计算本次考试的理想用时（秒） */
+/* 计算本次考试的理想用时（秒），基于精细题型 */
 function calcIdealTime(quizList) {
-  return quizList.reduce((sum, q) => sum + (MODULE_TIME_PER_Q[q.module] || 60), 0);
+  return quizList.reduce((sum, q) => {
+    // 优先匹配题型时间，没有匹配到则用模块时间兜底
+    const t = TYPE_TIME_PER_Q[q.type] || MODULE_TIME_PER_Q[q.module] || 60;
+    return sum + t;
+  }, 0);
 }
 
 
@@ -1068,7 +1072,27 @@ function renderExamIdle(view) {
   const maxCount = available.length;
   const suggested = Math.min(Math.max(1, e.count), Math.max(1, maxCount));
 
+  const reviewPool = getTodayReviewQuestions();
+  const reviewCount = reviewPool.length;
+  
   let html = `
+    <div class="card" style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.05));border-color:rgba(99,102,241,0.2)">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 4px 12px rgba(99,102,241,0.3)">🧠</div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:16px;font-weight:800;color:var(--text);margin-bottom:4px">今日智能复习</div>
+          <div style="font-size:13px;color:var(--text-2)">
+            ${reviewCount > 0 ? `根据记忆曲线，当前有 <b style="color:var(--primary);font-size:15px">${reviewCount}</b> 道错题到了该复习的时间。` : '太棒了，当前没有到期的错题，可以去练习新题。'}
+          </div>
+        </div>
+        ${reviewCount > 0 ? `
+          <button class="btn primary" id="start-smart-review" style="padding:10px 24px;font-size:14px">开始复习 (${Math.min(reviewCount, 20)})</button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+
+  html += `
     <div class="card">
       <div class="card-head">
         <div>
@@ -1181,7 +1205,28 @@ function bindExamIdleEvents(view) {
     });
   });
 
-  view.querySelector('#exam-start').addEventListener('click', startExam);
+  const btnSmart = view.querySelector('#start-smart-review');
+  if (btnSmart) {
+    btnSmart.addEventListener('click', () => {
+      // 取前 20 题
+      const pool = getTodayReviewQuestions().slice(0, 20);
+      const shuffled = [...pool].sort(() => Math.random() - 0.5);
+      
+      e.quiz = shuffled.map(q => ({
+        id: q.id, stem: q.stem, options: q.options.slice(),
+        correctIdx: q.correctIdx, module: q.module, type: q.type,
+        knowledgePoints: (q.knowledgePoints || []).slice(),
+        originalExplanation: q.originalExplanation || '',
+        selected: null, answered: false
+      }));
+      e.current = 0;
+      e.startTime = Date.now();
+      e.endTime = 0;
+      e.results = [];
+      e.stage = 'running';
+      renderView();
+    });
+  }
 }
 
 /* ---- 开始考试 ---- */
@@ -1213,20 +1258,44 @@ function renderExamRunning(view) {
   const q = e.quiz[e.current];
   const total = e.quiz.length;
   const answered = q.answered;
+
   const elapsed = Math.floor((Date.now() - e.startTime) / 1000);
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
   const progress = ((e.current + (answered ? 1 : 0)) / total) * 100;
+
+    // 当前题的理想用时
+  const currentQTimeLimit = TYPE_TIME_PER_Q[q.type] || MODULE_TIME_PER_Q[q.module] || 60;
+  // 当前题已耗时（如果是未答的新题，需要记录一个开始时间）
+  if (!q._startTime) q._startTime = Date.now();
+  const currentQElapsed = Math.floor((Date.now() - q._startTime) / 1000);
+  
+  // 判断是否超时（超过理想用时的 1.5 倍即警告）
+  const isOverLimit = currentQElapsed > currentQTimeLimit * 1.5;
 
   let html = `
     <div class="card">
       <div class="card-head" style="margin-bottom:14px">
         <div>
           <div class="card-title">第 ${e.current + 1} / ${total} 题</div>
-          <div class="card-sub" id="exam-timer">用时 ${mm}:${ss}</div>
+          <div class="card-sub" id="exam-timer">总用时 ${mm}:${ss}</div>
         </div>
-        <button class="btn ghost sm" id="exam-exit">退出</button>
+        <div style="display:flex;align-items:center;gap:12px">
+          ${!answered ? `
+            <div id="q-timer" style="font-size:13px;font-weight:700;color:${isOverLimit ? 'var(--danger)' : 'var(--text-2)'};background:${isOverLimit ? 'var(--danger-soft)' : 'var(--surface-2)'};padding:4px 10px;border-radius:12px;display:flex;align-items:center;gap:6px">
+              ⏱️ 本题 ${currentQElapsed}s / 建议 ${currentQTimeLimit}s
+            </div>
+          ` : ''}
+          <button class="btn ghost sm" id="exam-exit">退出</button>
+        </div>
       </div>
+      
+      ${isOverLimit && !answered ? `
+        <div style="margin-bottom:12px;padding:10px 14px;background:var(--danger-soft);border:1px solid var(--danger);border-radius:8px;color:var(--danger);font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">⚠️</span>
+          本题已严重超时！考场上请立刻标记跳过，留时间给其他高性价比的题。
+        </div>
+      ` : ''}
 
       <div class="progress-bar" style="margin-bottom:16px">
         <div class="progress-fill" style="width:${progress}%"></div>
@@ -1276,14 +1345,30 @@ function renderExamRunning(view) {
   view.innerHTML = html;
 
   // 计时器
+  // 计时器
   clearInterval(window._examTimer);
   if (e.stage === 'running') {
     window._examTimer = setInterval(() => {
+      // 总时间
       const s = Math.floor((Date.now() - e.startTime) / 1000);
       const m = String(Math.floor(s / 60)).padStart(2, '0');
       const ss = String(s % 60).padStart(2, '0');
       const el = document.getElementById('exam-timer');
-      if (el) el.textContent = `用时 ${m}:${ss}`;
+      if (el) el.textContent = `总用时 ${m}:${ss}`;
+      
+      // 单题时间
+      if (!q.answered) {
+        const qs = Math.floor((Date.now() - q._startTime) / 1000);
+        const qEl = document.getElementById('q-timer');
+        if (qEl) {
+          const over = qs > currentQTimeLimit * 1.5;
+          qEl.innerHTML = `⏱️ 本题 ${qs}s / 建议 ${currentQTimeLimit}s`;
+          if (over) {
+            qEl.style.color = 'var(--danger)';
+            qEl.style.background = 'var(--danger-soft)';
+          }
+        }
+      }
     }, 1000);
   }
 
@@ -1312,16 +1397,16 @@ function selectExamOption(idx) {
   q.selected = idx;
   q.answered = true;
   const isRight = idx === q.correctIdx;
+  const timeSpent = Math.floor((Date.now() - q._startTime) / 1000); e.results.push({ qid: q.id, selected: idx, isRight, t: Date.now(), timeSpent });
 
   // 写入全局题目
   const g = questions.find(x => x.id === q.id);
   if (g) {
-    if (isRight) g.rightCount = (g.rightCount || 0) + 1;
-    else g.wrongCount = (g.wrongCount || 0) + 1;
     const h = g.attemptHistory || [];
     h.unshift({ t: Date.now(), sel: idx, ok: isRight });
     g.attemptHistory = h.slice(0, ATTEMPT_HISTORY_LIMIT);
-    saveQuestion(g);
+    // 调用刚才写的工具函数
+    updateQuestionMastery(g, isRight);
   }
 
   e.results.push({ qid: q.id, selected: idx, isRight, t: Date.now() });
@@ -1370,6 +1455,15 @@ function renderExamFinished(view) {
     speedColor = '#d97706';
     speedBg = 'rgba(217,119,6,0.12)';
   }
+    // 计算有多少题严重超时（假设某题实际耗时超过其建议耗时的1.5倍）
+  let overtimeCount = 0;
+  e.results.forEach(r => {
+    const q = e.quiz.find(x => x.id === r.qid);
+    if (q && r.timeSpent) {
+      const limit = TYPE_TIME_PER_Q[q.type] || MODULE_TIME_PER_Q[q.module] || 60;
+      if (r.timeSpent > limit * 1.5) overtimeCount++;
+    }
+  });
 
   /* --- 对错条 --- */
   const rightPct = total ? (right / total * 100) : 0;
@@ -1447,6 +1541,16 @@ function renderExamFinished(view) {
             <span>${right} 对</span>
             <span>${wrong} 错</span>
           </div>
+        </div>
+      </div>
+      <!-- 涂卡与超时提醒 -->
+      <div style="background:var(--primary-soft);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:14px 18px;margin-top:16px">
+        <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px">💡 考场实战建议</div>
+        <div style="font-size:13px;line-height:1.7;color:var(--text)">
+          本次练习中，你有 <b>${overtimeCount} 道题</b> 严重超时（超过建议用时的1.5倍）。<br>
+          ${overtimeCount > 0 ? '这类题在真实考场上应该果断标记跳过，最后统一蒙，以免挤占资料分析和言语理解的得分时间。' : '你的单题时间控制得很好。'}
+          <br><br>
+          📌 <b>别忘了：</b>真实考试中至少留出 <b>5-8 分钟</b> 集中涂卡！
         </div>
       </div>
 
@@ -2293,7 +2397,7 @@ function renderWordsPractice(view) {
         </div>
 
         <div class="actions">
-          <button class="btn primary" id="wp-start">开始练习</button>
+          <button type="button" class="btn primary" id="wp-start" style="z-index:10;position:relative">开始练习</button>
         </div>
       </div>
     `;
@@ -2314,7 +2418,11 @@ function renderWordsPractice(view) {
         renderView();
       });
     });
-    view.querySelector('#wp-start').addEventListener('click', () => {
+    view.querySelector('#wp-start').addEventListener('click', (e) => {
+      e.preventDefault();
+      // 强制让输入框失焦，收起手机键盘
+      if (document.activeElement) document.activeElement.blur();
+      
       const target = Math.min(state.wp.targetCount || 10, wordCount);
       state.wp.targetCount = target;
       state.wp.session = { total: 0, correct: 0 };
@@ -3504,107 +3612,80 @@ function renderBrowseDetail(view) {
     }
   }
 
-  // 核心洞察
+  // 1. 核心考点与题眼
   if (an.coreIdea) {
-      html += `
-        <div class="ai-block" style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.08));border-color:rgba(99,102,241,0.15)">
-          <div class="ai-block-head" style="color:#6366f1">
-            <span>🎯</span><span>这道题在考什么</span>
-          </div>
-          <div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.7">${esc(an.coreIdea)}</div>
-        </div>
-      `;
-    }
-        // 破题题眼
-  if (an.keyPoints && an.keyPoints.length) {
     html += `
-      <div class="ai-block" style="background:linear-gradient(135deg,rgba(250,204,21,0.10),rgba(250,204,21,0.04));border-color:rgba(250,204,21,0.25)">
-        <div class="ai-block-head" style="color:#ca8a04">
-          <span>🔑</span><span>破题题眼</span>
-        </div>
-        <div style="font-size:12px;color:var(--text-3);margin-bottom:10px;line-height:1.6">
-          题干中以下内容已用黄色高亮标识：
-        </div>
-        ${an.keyPoints.map(kp => `
-          <div class="key-point-item">
-            <div class="kpt"><mark>${esc(kp.text)}</mark></div>
-            <div class="kpr">${esc(kp.reason)}</div>
-          </div>
-        `).join('')}
+      <div class="ai-block" style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.08));border-color:rgba(99,102,241,0.15)">
+        <div class="ai-block-head" style="color:#6366f1"><span>🎯</span><span>题目定位</span></div>
+        <div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.7;margin-bottom:10px">${esc(an.coreIdea)}</div>
+        ${an.keyPoints && an.keyPoints.length ? `
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:6px">题干关键节点（题眼）：</div>
+          ${an.keyPoints.map(kp => `
+            <div class="key-point-item" style="margin-bottom:4px">
+              <div class="kpt"><mark>${esc(kp.text)}</mark></div>
+              <div class="kpr" style="font-size:12px">${esc(kp.reason)}</div>
+            </div>
+          `).join('')}
+        ` : ''}
       </div>
     `;
   }
 
-    // 突破口
-  if (an.breakthrough) {
-      html += `
-        <div class="ai-block" style="background:linear-gradient(135deg,rgba(217,119,6,0.06),rgba(245,158,11,0.06));border-color:rgba(217,119,6,0.15)">
-          <div class="ai-block-head" style="color:var(--warn)">
-            <span>💡</span><span>解题突破口</span>
-          </div>
-          <div class="ai-block-body">${esc(an.breakthrough)}</div>
-        </div>
-      `;
-    }
+  // 2. 错误路径还原（重点新增，针对错因）
+  if (an.errorPath) {
+    html += `
+      <div class="ai-block" style="background:linear-gradient(135deg,rgba(220,38,38,0.05),rgba(239,68,68,0.05));border-color:rgba(220,38,38,0.15)">
+        <div class="ai-block-head" style="color:var(--danger)"><span>🔍</span><span>错误路径还原</span></div>
+        <div class="ai-block-body">${esc(an.errorPath)}</div>
+      </div>
+    `;
+  }
 
-    // 逐项剖析
+  // 3. 逐项剖析
   if (an.optionAnalysis && an.optionAnalysis.length) {
-      html += `
-        <div style="margin-top:12px">
-          <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.3px;margin-bottom:8px">📋 逐项剖析</div>
-          ${an.optionAnalysis.map(o => {
-            const isRight = o.type === 'right';
-            return `
-              <div style="display:flex;gap:10px;padding:10px 12px;border-radius:8px;margin-bottom:6px;
-                   background:${isRight ? 'var(--success-soft)' : 'var(--surface-2)'};
-                   border-left:3px solid ${isRight ? 'var(--success)' : 'var(--text-3)'}">
-                <div style="flex-shrink:0;width:22px;height:22px;border-radius:50%;
-                     background:${isRight ? 'var(--success)' : 'var(--text-3)'};color:#fff;
-                     display:flex;align-items:center;justify-content:center;
-                     font-size:12px;font-weight:800">${esc(o.label)}</div>
-                <div style="flex:1;font-size:13px;line-height:1.7;color:var(--text);min-width:0">${esc(o.why)}</div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `;
-    }
+    html += `
+      <div style="margin-top:12px">
+        <div style="font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:0.3px;margin-bottom:8px">📋 命题人视角 · 选项拆解</div>
+        ${an.optionAnalysis.map(o => {
+          const isRight = o.type === 'right';
+          return `
+            <div style="display:flex;gap:10px;padding:10px 12px;border-radius:8px;margin-bottom:6px;
+                 background:${isRight ? 'var(--success-soft)' : 'var(--surface-2)'};
+                 border-left:3px solid ${isRight ? 'var(--success)' : 'var(--text-3)'}">
+              <div style="flex-shrink:0;width:22px;height:22px;border-radius:50%;
+                   background:${isRight ? 'var(--success)' : 'var(--text-3)'};color:#fff;
+                   display:flex;align-items:center;justify-content:center;
+                   font-size:12px;font-weight:800">${esc(o.label)}</div>
+              <div style="flex:1;font-size:13px;line-height:1.7;color:var(--text);min-width:0">${esc(o.why)}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
 
-    // 易错点
-  if (an.easyMistake) {
-      html += `
-        <div class="ai-block" style="background:linear-gradient(135deg,rgba(220,38,38,0.05),rgba(239,68,68,0.05));border-color:rgba(220,38,38,0.15)">
-          <div class="ai-block-head" style="color:var(--danger)">
-            <span>⚠️</span><span>易错点</span>
-          </div>
-          <div class="ai-block-body">${esc(an.easyMistake)}</div>
-        </div>
-      `;
-    }
+  // 4. 考场最优解法
+  if (an.bestSolution) {
+    html += `
+      <div class="ai-block" style="background:linear-gradient(135deg,rgba(22,163,74,0.05),rgba(101,163,13,0.05));border-color:rgba(22,163,74,0.15)">
+        <div class="ai-block-head" style="color:var(--success)"><span>⚡</span><span>考场最优解法</span></div>
+        <div class="ai-block-body">${esc(an.bestSolution)}</div>
+      </div>
+    `;
+  }
 
-    // 更好解法
-  if (an.betterSolution) {
-      html += `
-        <div class="ai-block" style="background:linear-gradient(135deg,rgba(22,163,74,0.05),rgba(101,163,13,0.05));border-color:rgba(22,163,74,0.15)">
-          <div class="ai-block-head" style="color:var(--success)">
-            <span>⚡</span><span>更好的解法</span>
-          </div>
-          <div class="ai-block-body">${esc(an.betterSolution)}</div>
+  // 5. 考场决策 & 触发动作
+  if (an.examStrategy || an.triggerAction) {
+    html += `
+      <div class="ai-block" style="background:linear-gradient(135deg,rgba(217,119,6,0.06),rgba(245,158,11,0.06));border-color:rgba(217,119,6,0.15)">
+        <div class="ai-block-head" style="color:var(--warn)"><span>⏱️</span><span>考场决策与触发</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${an.examStrategy ? `<div style="font-size:13px;line-height:1.7;color:var(--text)"><b>时间策略：</b>${esc(an.examStrategy)}</div>` : ''}
+          ${an.triggerAction ? `<div style="font-size:13px;line-height:1.7;color:var(--text);background:var(--card);padding:8px 12px;border-radius:6px;border:1px dashed var(--border-strong)"><b>下次触发动作：</b>${esc(an.triggerAction)}</div>` : ''}
         </div>
-      `;
-    }
-
-    // 通用方法
-  if (an.generalTip) {
-      html += `
-        <div class="ai-block" style="background:linear-gradient(135deg,rgba(37,99,235,0.06),rgba(59,130,246,0.04));border-color:rgba(37,99,235,0.15)">
-          <div class="ai-block-head" style="color:var(--primary)">
-            <span>🧭</span><span>这类问题应该如何思考</span>
-          </div>
-          <div class="ai-block-body">${esc(an.generalTip)}</div>
-        </div>
-      `;
-    }
+      </div>
+    `;
+  }
 
   html += `
       <div class="actions" style="margin-top:14px;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
@@ -4707,34 +4788,46 @@ async function generateAnalysis(q, force = false) {
     // 深度思考 → 使用 reasoner 模型
     const model = useThinking ? 'deepseek-reasoner' : getAiModel();
 
-    const sys = `你是行测导师。用户会给你一道题（题干 + 选项），请你**独立完成这道题**，并给出深入分析。
+    const sys = `你是行测顶级专家。请从命题人、考生、教练三个视角，对这道题进行深度复盘。
+你只能看到题干和选项，没有任何答案提示。必须自己推理。
 
 【最高原则】
-- 你只能看到题干和选项，**没有任何答案提示**。
-- 你必须自己推理出唯一正确答案。
+1. 独立做出判断，不受干扰。
+2. 针对提供的“考生历史错选”，精准还原其错误路径。
+3. 区分“看懂解析的解法”和“考场实战的最优解法”。
 
-返回 JSON：
+返回严格 JSON：
 {
-  "myAnswer": "A|B|C|D",            // 你推理出的答案
-  "confidence": "high|medium|low",  // 你对自己判断的把握
-
-  "coreIdea": "这道题的本质，考察什么内容。50字以内，抓住关键矛盾",
+  "myAnswer": "A|B|C|D",
+  "confidence": "high|medium|low",
+  "coreIdea": "这题考什么（题型+考点+识别信号）",
   "keyPoints": [
-    { "text": "题干中关键片段，必须与原文一致", "reason": "为什么是破题题眼，30-50字" }
+    { "text": "题干中决定解法的关键条件或题眼", "reason": "为什么关键" }
   ],
-  "breakthrough": "解题的突破口在什么地方？30-60字",
+  "errorPath": "【错误路径还原】结合考生错选，指出他第一反应错在哪？是知识盲区、审题偏差、还是掉进了命题人的陷阱（如偷换概念、条件遗漏）？",
   "optionAnalysis": [
-    { "label": "A", "type": "right|wrong", "why": "选/不选的根本原因，30-50字" }
+    { "label": "A", "type": "right|wrong", "why": "正确项为什么对，错误项怎么设的坑（如绝对化、无中生有）" }
   ],
-  "easyMistake": "这道题的易错点是什么，60-100字",
-  "betterSolution": "有没有其他更好的分析方法，60-150字",
-  "generalTip": "这类别题目应该如何快速判断考什么内容，如何开始思考，100-200字"
+  "bestSolution": "【考场最优解法】在考场上最快最稳的方法是什么？（如代入、特值、尾数法）。不要讲长篇大论的常规解析，要秒杀思路。",
+  "examStrategy": "【考场决策】这道题属于高频核心题还是边缘题？在考场上应该直接做、还是果断蒙/跳过？合理耗时是多少？",
+  "triggerAction": "【触发动作】下次遇到同类题，我的第一反应/第一步动作应该是什么？（如‘先圈否定词’、‘先看单位’）"
 }
 
 【要求】
 1. optionAnalysis 中，type 必须与你自己判断的 myAnswer 一致（myAnswer 那个选项标 right，其他标 wrong）。
 2. keyPoints 逐字复制题干原文片段，2-4 个。
 3. 不要复述题干，只返回 JSON。`;
+    // 提取用户的历史错选（取最近一次的错误作答）
+    let userWrongChoice = '无记录（首次练习）';
+    if (q.attemptHistory && q.attemptHistory.length) {
+      const lastWrong = q.attemptHistory.find(h => !h.ok);
+      if (lastWrong) {
+        userWrongChoice = `选项 ${String.fromCharCode(65 + lastWrong.sel)}: ${q.options[lastWrong.sel]}`;
+      }
+    } else if (q.wrongHistory && q.wrongHistory.length) {
+      const lastSel = q.wrongHistory[q.wrongHistory.length - 1];
+      userWrongChoice = `选项 ${String.fromCharCode(65 + lastSel)}: ${q.options[lastSel]}`;
+    }
 
     const user = `模块：${q.module}
 题型：${q.type}
@@ -4744,7 +4837,11 @@ async function generateAnalysis(q, force = false) {
 A. ${q.options[0]}
 B. ${q.options[1]}
 C. ${q.options[2]}
-D. ${q.options[3]}`;
+D. ${q.options[3]}
+
+【考生历史错选】${userWrongChoice}
+
+请结合考生错选，深刻剖析陷阱，并给出考场实战策略。`;
 
     const body = {
       model,
@@ -4779,23 +4876,26 @@ D. ${q.options[3]}`;
 
     q.aiAnalysis = {
       myAnswerIdx,
-      myAnswerConfidence: ['high','medium','low'].includes(parsed.confidence) ? parsed.confidence : 'medium',
-      answerMismatch: mismatch,   // 前端计算
+      myAnswerConfidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'medium',
+      answerMismatch: myAnswerIdx >= 0 && myAnswerIdx !== q.correctIdx,
 
       coreIdea: String(parsed.coreIdea || '').trim(),
       keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints.map(k => ({
         text: String(k.text || '').trim(),
         reason: String(k.reason || '').trim()
       })).filter(k => k.text).slice(0, 4) : [],
-      breakthrough: String(parsed.breakthrough || '').trim(),
+      
+      // 新的专家级字段
+      errorPath: String(parsed.errorPath || '').trim(),
       optionAnalysis: Array.isArray(parsed.optionAnalysis) ? parsed.optionAnalysis.map(o => ({
         label: String(o.label || '').toUpperCase().slice(0, 1),
         type: o.type === 'right' ? 'right' : 'wrong',
         why: String(o.why || '').trim()
       })).filter(o => o.label) : [],
-      easyMistake: String(parsed.easyMistake || '').trim(),
-      betterSolution: String(parsed.betterSolution || '').trim(),
-      generalTip: String(parsed.generalTip || '').trim(),
+      bestSolution: String(parsed.bestSolution || '').trim(),
+      examStrategy: String(parsed.examStrategy || '').trim(),
+      triggerAction: String(parsed.triggerAction || '').trim(),
+
       reasoning: reasoning,
       thinkingUsed: useThinking,
       generatedAt: Date.now()
@@ -5272,107 +5372,120 @@ function renderReportBody(scope) {
     `;
   }
 
-  /* 诊断结论 */
   if (r.headline) {
     html += `
       <div class="report-hero">
-        <div class="report-hero-label">✦ ${levelLabel} · 诊断结论</div>
+        <div class="report-hero-label">✦ 核心诊断结论</div>
         <div class="report-hero-text">${esc(r.headline)}</div>
       </div>
     `;
   }
 
-  /* 数据证据 */
-  if (r.evidence && r.evidence.length) {
+  // 陷阱归因
+  if (r.traps && r.traps.length) {
     html += `
       <div class="report-section">
         <div class="report-section-head">
-          <div class="report-section-icon danger">📊</div>
-          <div class="report-section-title">数据证据</div>
+          <div class="report-section-icon danger">🕳️</div>
+          <div class="report-section-title">命题陷阱盘点</div>
         </div>
-        <ul style="list-style:none;padding:0;margin:0">
-          ${r.evidence.map(e => `
-            <li style="padding:10px 14px;background:var(--bg);border-radius:8px;margin-bottom:6px;
-                 font-size:13px;line-height:1.7;color:var(--text);border-left:3px solid var(--primary)">
-              ${esc(e)}
-            </li>
-          `).join('')}
-        </ul>
-      </div>
-    `;
-  }
-
-  /* 根源分析 */
-  if (r.rootCause && (r.rootCause.symptom || r.rootCause.deeper)) {
-    html += `
-      <div class="report-section">
-        <div class="report-section-head">
-          <div class="report-section-icon warn">🔍</div>
-          <div class="report-section-title">根源分析</div>
-        </div>
-        ${r.rootCause.symptom ? `
-          <div style="padding:12px 14px;background:var(--warn-soft);border-radius:8px;margin-bottom:8px">
-            <div style="font-size:11px;font-weight:700;color:var(--warn);letter-spacing:0.3px;margin-bottom:4px">表面现象</div>
-            <div style="font-size:13px;line-height:1.7;color:var(--text)">${esc(r.rootCause.symptom)}</div>
-          </div>
-        ` : ''}
-        ${r.rootCause.deeper ? `
-          <div style="padding:12px 14px;background:var(--danger-soft);border-radius:8px;margin-bottom:8px">
-            <div style="font-size:11px;font-weight:700;color:var(--danger);letter-spacing:0.3px;margin-bottom:4px">根本原因</div>
-            <div style="font-size:13px;line-height:1.7;color:var(--text)">${esc(r.rootCause.deeper)}</div>
-          </div>
-        ` : ''}
-        ${r.rootCause.habit ? `
-          <div style="padding:12px 14px;background:var(--surface-2);border-radius:8px">
-            <div style="font-size:11px;font-weight:700;color:var(--text-3);letter-spacing:0.3px;margin-bottom:4px">可能形成的不良习惯</div>
-            <div style="font-size:13px;line-height:1.7;color:var(--text-2)">${esc(r.rootCause.habit)}</div>
-          </div>
-        ` : ''}
-      </div>
-    `;
-  }
-
-  /* 薄弱点 */
-  if (r.weakPoints && r.weakPoints.length) {
-    html += `
-      <div class="report-section">
-        <div class="report-section-head">
-          <div class="report-section-icon danger">🎯</div>
-          <div class="report-section-title">薄弱环节</div>
-        </div>
-        ${r.weakPoints.map(w => {
-          const sev = ['high','medium','low'].includes(w.severity) ? w.severity : 'medium';
-          const sevLabel = sev === 'high' ? '重点补强' : sev === 'medium' ? '需要加强' : '留意';
-          return `
-            <div class="weak-item ${sev}">
-              <div class="weak-sev-dot"></div>
-              <div class="weak-body">
-                <div class="weak-head">
-                  <div class="weak-name">${esc(w.name || '')}</div>
-                  <span class="weak-sev-tag ${sev}">${sevLabel}</span>
-                </div>
-                ${w.evidence ? `<div style="font-size:12.5px;line-height:1.7;color:var(--text-2);margin-bottom:6px"><b style="color:var(--text)">证据：</b>${esc(w.evidence)}</div>` : ''}
-                ${w.impact ? `<div style="font-size:12.5px;line-height:1.7;color:var(--danger)"><b>影响：</b>${esc(w.impact)}</div>` : ''}
-              </div>
+        ${r.traps.map(t => `
+          <div class="pattern-item" style="border-left-color:var(--danger)">
+            <div class="pattern-title">
+              <span style="font-weight:800">${esc(t.name)}</span>
+              <span class="tag" style="background:var(--danger-soft);color:var(--danger);font-size:10px;margin-left:6px">${esc(t.frequency || '')}</span>
             </div>
-          `;
-        }).join('')}
+            <div class="pattern-detail" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <span>${esc(t.evidence)}</span>
+              <button class="btn sm ghost" data-quick-practice="${esc(t.name)}" style="flex-shrink:0;border-color:var(--primary-soft);color:var(--primary)">
+                去攻克 →
+              </button>
+            </div>
+          </div>
+        `).join('')}
       </div>
     `;
   }
 
-  /* 避坑 */
+  // 能力短板
+  if (r.weakness) {
+    html += `
+      <div class="report-section">
+        <div class="report-section-head">
+          <div class="report-section-icon warn">🧠</div>
+          <div class="report-section-title">深层能力短板</div>
+        </div>
+        <div style="padding:16px;background:var(--warn-soft);border-radius:8px;font-size:13px;line-height:1.7;color:var(--text)">
+          <div style="margin-bottom:12px">${esc(r.weakness)}</div>
+          <button class="btn primary sm" id="jumpToPracticeFromReport">
+            ⚔️ 去针对性练习该范围
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // 考场策略
+  if (r.examStrategy) {
+    html += `
+      <div class="report-section">
+        <div class="report-section-head">
+          <div class="report-section-icon success">⏱️</div>
+          <div class="report-section-title">考场实战策略</div>
+        </div>
+        <div style="padding:12px 16px;background:var(--success-soft);border-radius:8px;font-size:13px;line-height:1.7;color:var(--text)">
+          ${esc(r.examStrategy)}
+        </div>
+      </div>
+    `;
+  }
+
+  // 行动方案
+  if (r.actionPlan && r.actionPlan.length) {
+    html += `
+      <div class="report-section">
+        <div class="report-section-head">
+          <div class="report-section-icon primary">🚀</div>
+          <div class="report-section-title">提分行动方案</div>
+        </div>
+        ${r.actionPlan.map(p => `
+          <div style="padding:14px 16px;background:linear-gradient(135deg,rgba(99,102,241,0.06),rgba(139,92,246,0.03));
+               border-radius:10px;border-left:3px solid var(--primary);margin-bottom:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div style="font-size:13px;font-weight:800;color:var(--primary);letter-spacing:0.3px">${esc(p.phase || '阶段')}</div>
+              <div style="font-size:12px;font-weight:700;color:var(--text)">🎯 ${esc(p.goal || '')}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;padding-left:14px">
+              ${(p.actions || []).map(a => `<div style="font-size:12.5px;line-height:1.6;color:var(--text-2);position:relative">
+                <span style="position:absolute;left:-12px;color:var(--primary)">•</span>${esc(a)}
+              </div>`).join('')}
+            </div>
+            <div style="margin-bottom:10px">
+              <button class="btn sm primary" data-jump-practice="${esc(p.phase)}" style="padding:4px 12px;font-size:12px" onclick="document.getElementById('jumpToPracticeFromReport')?.click()">
+                开始执行
+              </button>
+            </div>
+            <div style="font-size:12px;color:var(--text-2);padding:8px 10px;background:var(--card);border-radius:6px;border:1px dashed var(--border-strong)">
+              ✅ <b>检验标准：</b>${esc(p.check || '')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  // 避坑提醒
   if (r.doNot && r.doNot.length) {
     html += `
       <div class="report-section">
         <div class="report-section-head">
           <div class="report-section-icon warn">🚫</div>
-          <div class="report-section-title">避坑提示</div>
+          <div class="report-section-title">避坑警示</div>
         </div>
         <ul style="list-style:none;padding:0;margin:0">
           ${r.doNot.map(d => `
-            <li style="padding:10px 14px;background:var(--warn-soft);border-radius:8px;margin-bottom:6px;
-                 font-size:13px;line-height:1.7;color:var(--text);border-left:3px solid var(--warn)">
+            <li style="padding:10px 14px;background:var(--danger-soft);border-radius:8px;margin-bottom:6px;
+                 font-size:13px;line-height:1.7;color:var(--text);border-left:3px solid var(--danger)">
               ${esc(d)}
             </li>
           `).join('')}
@@ -5441,6 +5554,54 @@ function bindAnalysisEvents(view, scope) {
       localStorage.setItem(d.dataset.collapseKey, d.open ? '0' : '1');
     });
   });
+
+    // 一键去练习
+  view.querySelectorAll('[data-quick-practice]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const keyword = btn.dataset.quickPractice;
+      // 1. 切换到错题考试
+      state.mode = 'exam';
+      // 2. 将关键字填入知识点筛选
+      state.exam.filter = { module: 'all', type: 'all', knowledgePoints: [keyword] };
+      // 3. 如果题库里没完全匹配这个关键词，可以退一步搜题干
+      if (filterQuestions(state.exam.filter).length === 0) {
+        state.exam.filter.knowledgePoints = [];
+        // 模糊搜索题干里的关键字
+        state.search = keyword; 
+      }
+      state.exam.stage = 'idle';
+      saveCurrentMode();
+      renderView();
+    });
+  });
+
+    // 从 AI 报告跳转到错题考试
+  const jumpBtn = view.querySelector('#jumpToPracticeFromReport');
+  if (jumpBtn) {
+    jumpBtn.addEventListener('click', () => {
+      const a = state.analysis;
+      // 1. 切换到考试页
+      state.mode = 'exam';
+      state.prevMode = 'exam';
+      
+      // 2. 设置考试筛选条件为当前分析的面包屑层级
+      state.exam.filter = {
+        module: a.module || 'all',
+        type: a.type || 'all',
+        source: 'all', 
+        knowledgePoints: [] // 如果到了知识点层级，也可以用 [a.kp]
+      };
+      
+      // 3. 重置考试状态
+      state.exam.stage = 'idle';
+      state.exam.quiz = [];
+      state.exam.results = [];
+      
+      saveCurrentMode();
+      renderView();
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    });
+  }
 }
 
 
@@ -5544,122 +5705,98 @@ function getAnalysisLevel() {
   return 'all';
 }
 
-/* 构造给 AI 的数据 */
-function buildAnalysisPayload(scope, level) {
-  const a = state.analysis;
-  const lines = [];
+/* 按层级生成 system prompt */
+function buildAnalysisPrompt(level) {
+  const commonHead = `【背景说明（极其重要）】
+- 这是一份行测错题本数据，所有题目都是考生做错后才收录的。天然没有“正确率”。
+- 不要罗列数据，不要写废话。你的任务是像**顶级行测专家**一样，做深度归因和动作指导。
+- 绝不能写“多练习”“夯实基础”等假大空的话。`;
 
-  lines.push(`【层级】${scope.path.map(p => p.label).join(' > ')}`);
-  lines.push(`【错题总数】${scope.list.length}`);
-  lines.push(`【累计答错次数】${scope.totalWrong}`);
+  const commonTail = `
+【输出格式】严格 JSON：
+{
+  "headline": "一句话诊断，15-25字，直指最核心的痛点（如：条件反射找对策，却总掉进偷换主体的坑）",
+  "traps": [
+    {
+      "name": "陷阱类型（如：偷换概念、绝对化表述、条件遗漏、公式错用等）",
+      "frequency": "高频/中频/低频",
+      "evidence": "引用具体的误选项内容，说明该陷阱是怎么设计的。50字以内"
+    }
+  ],
+  "weakness": "【能力短板归因】是知识盲区？方法笨重？还是审题习惯差？（如：不看否定词、凭语感做题）。50字以内",
+  "examStrategy": "【考场决策评估】针对这一版块，在考场上应该怎么分配时间？遇到什么特征应该果断放弃？50字以内",
+  "actionPlan": [
+    {
+      "phase": "第一阶段/明日/立刻",
+      "goal": "具体且可衡量的目标",
+      "actions": [
+        "具体动作1（如：收集近3年该题型的10道错题）",
+        "具体动作2（如：每天练5题，做题时先圈出主语）"
+      ],
+      "check": "怎么验证真的做到了（如：正确率到80%，或能讲清其他三个选项为什么错）"
+    }
+  ],
+  "doNot": ["避坑提醒1", "避坑提醒2"]
+}
 
-  const rep3 = scope.list.filter(q => (q.wrongCount || 0) >= 3).length;
-  const rep5 = scope.list.filter(q => (q.wrongCount || 0) >= 5).length;
-  lines.push(`【反复错（≥3次）】${rep3} 道`);
-  if (rep5) lines.push(`【顽固错（≥5次）】${rep5} 道`);
-  lines.push('');
-
-  const dist = { '1次': 0, '2次': 0, '3-4次': 0, '5次+': 0 };
-  scope.list.forEach(q => {
-    const w = q.wrongCount || 0;
-    if (w <= 1) dist['1次']++;
-    else if (w === 2) dist['2次']++;
-    else if (w <= 4) dist['3-4次']++;
-    else dist['5次+']++;
-  });
-  const distStr = Object.entries(dist).filter(([k,v]) => v).map(([k,v]) => `${k}: ${v}道`).join('，');
-  lines.push(`【错误次数分布】${distStr}`);
-  lines.push('');
+【极其重要】
+1. 引用陷阱和证据时，**必须**结合前面提供的【高频误选选项及陷阱分析】。
+2. actionPlan 必须是可执行的“触发动作”，而不是泛泛而谈。
+3. 只返回 JSON，不要 markdown 代码块。`;
 
   if (level === 'all') {
-    const byModule = {};
-    scope.list.forEach(q => {
-      const m = q.module || '未分类';
-      if (!byModule[m]) byModule[m] = { count: 0, wrong: 0, types: {}, kps: {} };
-      byModule[m].count++;
-      byModule[m].wrong += q.wrongCount || 0;
-      if (q.type) byModule[m].types[q.type] = (byModule[m].types[q.type] || 0) + 1;
-      (q.knowledgePoints || []).forEach(k => {
-        byModule[m].kps[k] = (byModule[m].kps[k] || 0) + (q.wrongCount || 0);
-      });
-    });
-    lines.push('【各模块错题分布（按累计答错次数降序）】');
-    Object.entries(byModule).sort((x, y) => y[1].wrong - x[1].wrong).forEach(([m, s]) => {
-      const topTypes = Object.entries(s.types).sort((x, y) => y[1] - x[1]).slice(0, 5)
-        .map(([t, c]) => `${t}(${c}题)`).join('、');
-      const topKps = Object.entries(s.kps).sort((x, y) => y[1] - x[1]).slice(0, 5)
-        .map(([k, c]) => `${k}(错${c}次)`).join('、');
-      lines.push(`- ${m}：${s.count} 题，累计错 ${s.wrong} 次`);
-      lines.push(`  常错题型：${topTypes || '—'}`);
-      lines.push(`  常错知识点：${topKps || '—'}`);
-    });
-    lines.push('');
+    return `你是行测总教练。用户给你的是**全部错题**数据，请做**全局战略诊断**。
+
+${commonHead}
+
+【核心任务】
+1. 从各模块错题分布和错误次数，找出最大的短板。
+2. 分析最高频的误选陷阱是什么。
+3. 给出2-3个月的长周期战略规划，明确主攻方向。
+4. 必须包含考场时间分配建议（哪些模块该放，哪些该抓）。
+
+${commonTail}`;
   }
 
-  if (level === 'module' || level === 'type') {
-    const byType = {};
-    scope.list.forEach(q => {
-      const t = q.type || '未分类';
-      if (!byType[t]) byType[t] = { count: 0, wrong: 0, kps: {}, repeated: 0 };
-      byType[t].count++;
-      byType[t].wrong += q.wrongCount || 0;
-      if ((q.wrongCount || 0) >= 3) byType[t].repeated++;
-      (q.knowledgePoints || []).forEach(k => {
-        byType[t].kps[k] = (byType[t].kps[k] || 0) + (q.wrongCount || 0);
-      });
-    });
-    lines.push('【各题型错题分布（按累计答错次数降序）】');
-    Object.entries(byType).sort((x, y) => y[1].wrong - x[1].wrong).forEach(([t, s]) => {
-      const topKps = Object.entries(s.kps).sort((x, y) => y[1] - x[1]).slice(0, 6)
-        .map(([k, c]) => `${k}(错${c}次)`).join('、');
-      lines.push(`- ${t}：${s.count} 题，累计错 ${s.wrong} 次，反复错 ${s.repeated} 道`);
-      lines.push(`  常错知识点：${topKps || '—'}`);
-    });
-    lines.push('');
+  if (level === 'module') {
+    return `你是行测单模块教练。用户给你的是**某个模块下的全部错题**，请做**模块深度诊断**。
+
+${commonHead}
+
+【核心任务】
+1. 该模块下，考生最容易掉进命题人设的哪些陷阱？
+2. 失分是因为知识点不牢，还是方法太慢，或者审题习惯不好？
+3. 给出该模块特有的实战秒杀思路和排除法训练。
+4. 评估该模块的考场时间投入产出比。
+
+${commonTail}`;
   }
 
-  if (scope.freq.length) {
-    lines.push('【知识点错误频次】');
-    scope.freq.slice(0, 15).forEach(f => {
-      lines.push(`- ${f.kp}：${f.count} 题，累计错 ${f.wrongSum} 次`);
-    });
-    lines.push('');
+  if (level === 'type') {
+    return `你是行测单题型教练。用户给你的是**某个题型下的全部错题**，请做**题型深度诊断**。
+
+${commonHead}
+
+【核心任务】
+1. 该题型的命题人套路是什么？惯用干扰项特征是什么？
+2. 考生的错误路径是什么？（如：是不是总被表面相似的条件骗）
+3. 总结该题型的3-5条“识别信号”和“第一动作”（如：看到“下列说法错误的是”立刻圈出“错误”）。
+4. 给出针对性的限时训练计划。
+
+${commonTail}`;
   }
 
-  /* 误选模式 —— 判断错误类型的关键 */
-  const wrongChoiceMap = {};
-  scope.list.forEach(q => {
-    (q.wrongHistory || []).forEach(sel => {
-      const optText = (q.options[sel] || '').slice(0, 20);
-      if (!optText) return;
-      wrongChoiceMap[optText] = (wrongChoiceMap[optText] || 0) + 1;
-    });
-    (q.attemptHistory || []).forEach(h => {
-      if (h.ok) return;
-      const optText = (q.options[h.sel] || '').slice(0, 20);
-      if (!optText) return;
-      wrongChoiceMap[optText] = (wrongChoiceMap[optText] || 0) + 1;
-    });
-  });
-  const topWrong = Object.entries(wrongChoiceMap).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  if (topWrong.length) {
-    lines.push('【经常被误选的选项内容（截断 20 字，反映错误模式）】');
-    topWrong.forEach(([t, c]) => lines.push(`- "${t}"：误选 ${c} 次`));
-    lines.push('');
-  }
+  return `你是行测知识点专项教练。用户给你的是**某个具体知识点下的全部错题**，请做**专项诊断**。
 
-  lines.push('【错题明细（按错误次数降序，最多 25 条）】');
-  const sorted = [...scope.list].sort((a, b) => (b.wrongCount || 0) - (a.wrongCount || 0)).slice(0, 25);
-  sorted.forEach((q, i) => {
-    lines.push(`${i + 1}. [错${q.wrongCount || 0}次] ${q.module} · ${q.type}`);
-    lines.push(`   知识点：${(q.knowledgePoints || []).join('、')}`);
-    lines.push(`   题干：${q.stem.slice(0, 100)}${q.stem.length > 100 ? '…' : ''}`);
-    lines.push(`   正确答案：${String.fromCharCode(65 + q.correctIdx)}. ${q.options[q.correctIdx]}`);
-    const wrongOpts = (q.wrongHistory || []).map(i => `选${String.fromCharCode(65 + i)}. ${q.options[i].slice(0, 15)}`);
-    if (wrongOpts.length) lines.push(`   曾错选：${wrongOpts.join('；')}`);
-  });
+${commonHead}
 
-  return lines.join('\n');
+【核心任务】
+1. 剖析该知识点下考生的具体盲区。
+2. 拆解该知识点的通用解题步骤（第一步看什么、第二步列什么）。
+3. 如何规避特定的陷阱。
+4. 提供彻底掌握该知识点的验证方法。
+
+${commonTail}`;
 }
 
 /* 按层级生成 system prompt */

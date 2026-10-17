@@ -199,6 +199,8 @@ document.querySelectorAll('.nav button').forEach(btn => {
     if (typeof q.personalNote !== 'string') q.personalNote = '';
     if (typeof q.personalNoteUpdatedAt !== 'number') q.personalNoteUpdatedAt = 0;
     if (typeof q.stars !== 'number') q.stars = 0;
+    if (typeof q.lastPracticedAt !== 'number') q.lastPracticedAt = q.createdAt || Date.now();
+    if (typeof q.masteryLevel !== 'number') q.masteryLevel = 0; // 0-5 级
     if (!Array.isArray(q.imageIds)) q.imageIds = [];
     const cleanedOpts = q.options.map(s => stripOptionPrefix(s));
     if (JSON.stringify(cleanedOpts) !== JSON.stringify(q.options)) {
