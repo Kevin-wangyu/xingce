@@ -398,6 +398,8 @@ function syncAllParsedCardsToState() {
     });
     const corr = card.querySelector('[data-field="correct"]');
     if (corr) p.correctIdx = parseInt(corr.value);
+    const wrongSel = card.querySelector('[data-field="wrong-choice"]');
+    if (wrongSel) p.wrongIdx = parseInt(wrongSel.value);
     const mod = card.querySelector('[data-field="module"]');
     if (mod) p.module = mod.value;
     const typ = card.querySelector('[data-field="type"]');
@@ -928,6 +930,11 @@ function bindCollectEvents() {
       const stem = stripStemPrefix(card.querySelector('[data-field="stem"]').value);
       const options = [0,1,2,3].map(i => stripOptionPrefix(card.querySelector(`[data-field="opt-${i}"]`).value.trim()));
       const correctIdx = parseInt(card.querySelector('[data-field="correct"]').value);
+      const wrongIdx = parseInt(card.querySelector('[data-field="wrong-choice"]').value);
+      if (wrongIdx === correctIdx) {
+        errors.push(`第 ${qi + 1} 题：正确答案和误选不能相同`);
+        return;
+      }
       const module = card.querySelector('[data-field="module"]').value;
       const type = card.querySelector('[data-field="type"]').value;
       const explanation = card.querySelector('[data-field="expl"]').value.trim();
@@ -942,6 +949,14 @@ function bindCollectEvents() {
       // 使用用户在图片选择器里选中的图片
       const imageIds = Array.isArray(p.selectedImageIds) ? p.selectedImageIds.slice() : [];
 
+      // 构造作答历史
+      const attemptHistory = [];
+      const wrongHistory = [];
+      if (wrongIdx >= 0 && wrongIdx !== correctIdx) {
+        wrongHistory.push(wrongIdx);
+        attemptHistory.push({ t: Date.now(), sel: wrongIdx, ok: false });
+      }
+
       toSave.push({
         id: uid(),
         stem, options, correctIdx,
@@ -952,8 +967,14 @@ function bindCollectEvents() {
         source,
         stars: p.stars || 0,
         imageIds,
-        wrongCount: 1, rightCount: 0,
-        attemptHistory: [],
+        // ====== 核心改动 ======
+        wrongCount: 1, 
+        rightCount: 0,
+        wrongHistory: wrongHistory,
+        attemptHistory: attemptHistory,
+        // ======================
+        masteryLevel: 0,
+        lastPracticedAt: Date.now(),
         personalNote: '',
         personalNoteUpdatedAt: 0,
         createdAt: Date.now()

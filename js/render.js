@@ -298,9 +298,25 @@ function renderParsedCard(p, qi) {
             </select>
           </div>
           <div>
+            <label>我误选了 <span style="font-weight:400;color:var(--text-3)">（便于AI分析错因）</span></label>
+            <select data-field="wrong-choice" class="input">
+              <option value="-1">— 未记录 —</option>
+              ${['A','B','C','D'].map((L,i)=>`<option value="${i}" ${p.wrongIdx === i ? 'selected' : ''}>选项 ${L}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="row2">
+          <div>
             <label>模块 <span class="req">*</span></label>
             <select data-field="module" class="input">
               ${MODULES.map(m => `<option value="${esc(m)}" ${m === p.module ? 'selected' : ''}>${esc(m)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label>题型 <span class="req">*</span></label>
+            <select data-field="type" class="input">
+              ${typeOptions.map(t => `<option value="${esc(t)}" ${t === knownType ? 'selected' : ''}>${esc(t)}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -5957,7 +5973,11 @@ function goBack() {
 
 /* ============ 主渲染 ============ */
 function renderView() {
-  // 主 nav 高亮
+  // 切换任何视图时，先清除之前可能残留的考试计时器
+  if (window._examTimer) {
+    clearInterval(window._examTimer);
+    window._examTimer = null;
+  }
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
   // 设置图标高亮
   const setBtn = document.getElementById('settingsBtn');

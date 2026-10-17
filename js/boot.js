@@ -214,19 +214,21 @@ document.querySelectorAll('.nav button').forEach(btn => {
     scheduleFlush();
   }
 
-  // 后台预热 PaddleOCR
-  if (canUsePaddle() && !_paddleFailed) {
+  // 后台预热 PaddleOCR（移动端禁用，防止内存溢出崩溃）
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (!isMobile && canUsePaddle() && !_paddleFailed) {
     setTimeout(() => {
       console.log('[预热] 开始加载 PaddleOCR…');
       const t0 = performance.now();
       initPaddleOCR()
         .then(() => {
           console.log(`[预热] PaddleOCR 就绪，耗时 ${((performance.now() - t0) / 1000).toFixed(1)}s`);
-          // 如果当前在错题收录页，自动刷新 UI 以更新状态文字
           if (state.mode === 'collect') renderView();
         })
         .catch(e => console.warn('[预热] PaddleOCR 加载失败：', e.message));
     }, 2000);
+  } else if (isMobile) {
+    console.log('[预热] 移动端环境，跳过 PaddleOCR 预热');
   }
   // 注册 Service Worker 缓存 OCR 资源
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -350,3 +352,13 @@ window.xc = {
   reset: () => clearAllStores(),
   setTheme: (t) => { localStorage.setItem(K_THEME, t); applyTheme(t); }
 };
+
+// 手机端切到后台时，强制清理定时器，防止被系统杀后台
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (window._examTimer) {
+      clearInterval(window._examTimer);
+      window._examTimer = null;
+    }
+  }
+});
