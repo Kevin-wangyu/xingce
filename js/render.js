@@ -2435,25 +2435,32 @@ function renderWordsPractice(view) {
       });
     });
     view.querySelector('#wp-start').addEventListener('click', (e) => {
-      e.preventDefault();
+      if (e) e.preventDefault();
       // 强制收起手机键盘
       if (document.activeElement) document.activeElement.blur();
       
-      // 直接读取 DOM 当前的值，防止 state 同步延迟
       const inputEl = view.querySelector('#wp-target');
       const val = parseInt(inputEl ? inputEl.value : 10) || 10;
-      
       const target = Math.min(val, wordCount);
-      state.wp.targetCount = target;
       
-      // 重置练习状态
+      // 1. 重置本轮状态
+      state.wp.targetCount = target;
       state.wp.session = { total: 0, correct: 0 };
       state.wp.wrongIds = [];
       state.wp.finished = false;
-      state.wp.current = null;
       state.wp.answered = false;
       state.wp.selected = null;
       
+      // 2. 关键修复：直接生成第一题，并赋值给 current
+      state.wp.current = buildWordQuiz(); 
+      
+      // 3. 如果词库有问题（虽然前面拦截了，但防一手），或者生成失败
+      if (!state.wp.current) {
+        showToast('未能生成题目，请检查词库');
+        return;
+      }
+      
+      // 4. 重新渲染，此时会进入“答题中”的界面
       renderView();
     });
     return;
@@ -3903,17 +3910,26 @@ function renderBrowseDetail(view) {
   if (nextBtn) nextBtn.addEventListener('click', () => gotoAdjacentDetail(1));
   const editBtn = view.querySelector('#detail-edit');
   if (editBtn) editBtn.addEventListener('click', () => {
+    // 提取当前最新的错选
+    let currentWrong = -1;
+    if (q.attemptHistory && q.attemptHistory.length) {
+      const lastWrong = q.attemptHistory.find(h => !h.ok);
+      if (lastWrong) currentWrong = lastWrong.sel;
+    } else if (q.wrongHistory && q.wrongHistory.length) {
+      currentWrong = q.wrongHistory[q.wrongHistory.length - 1];
+    }
     b.editDraft = {
       stem: q.stem,
       options: q.options.slice(),
       correctIdx: q.correctIdx,
+      wrongIdx: currentWrong, // ← 新增
       module: q.module,
       type: q.type,
       kpDraft: (q.knowledgePoints || []).slice(),
       originalExplanation: q.originalExplanation || '',
       source: q.source || '',
       stars: q.stars || 0,
-      imageIds: (q.imageIds || []).slice()   // ← 新增
+      imageIds: (q.imageIds || []).slice()
     };
     b.editing = true;
     renderView();
@@ -4593,14 +4609,21 @@ function renderBrowseEdit(view, q) {
             </select>
           </div>
           <div>
-            <label>模块 <span class="req">*</span></label>
-            <select id="e-module" class="input">
-              ${MODULES.map(m => `<option value="${esc(m)}" ${m === d.module ? 'selected' : ''}>${esc(m)}</option>`).join('')}
+            <label>我误选了</label>
+            <select id="e-wrong-choice" class="input">
+              <option value="-1" ${d.wrongIdx === -1 ? 'selected' : ''}>— 未记录 —</option>
+              ${['A','B','C','D'].map((L,i) => `<option value="${i}" ${d.wrongIdx === i ? 'selected' : ''}>选项 ${L}</option>`).join('')}
             </select>
           </div>
         </div>
 
         <div class="row2">
+          <div>
+            <label>模块 <span class="req">*</span></label>
+            <select id="e-module" class="input">
+              ${MODULES.map(m => `<option value="${esc(m)}" ${m === d.module ? 'selected' : ''}>${esc(m)}</option>`).join('')}
+            </select>
+          </div>
           <div>
             <label>题型 <span class="req">*</span></label>
             <select id="e-type" class="input">
@@ -4653,11 +4676,9 @@ function renderBrowseEdit(view, q) {
   };
 
   view.querySelector('#edit-cancel').addEventListener('click', () => {
-    if (!confirm('放弃本次修改？')) return;
     backToList();
   });
   view.querySelector('#edit-cancel2').addEventListener('click', () => {
-    if (!confirm('放弃本次修改？')) return;
     backToList();
   });
 
@@ -4744,6 +4765,8 @@ function renderBrowseEdit(view, q) {
     if (options.some(o => !o)) { alert('四个选项都要填'); return; }
     const correctIdx = parseInt(view.querySelector('#e-correct').value);
     if (correctIdx < 0 || correctIdx > 3) { alert('请选择正确答案'); return; }
+    const wrongIdx = parseInt(view.querySelector('#e-wrong-choice').value);
+    if (wrongIdx === correctIdx) { alert('正确答案和误选不能相同'); return; }
     const module = view.querySelector('#e-module').value;
     const type = view.querySelector('#e-type').value;
     if (!module || !type) { alert('请选择模块和题型'); return; }
@@ -4773,6 +4796,19 @@ function renderBrowseEdit(view, q) {
         q.aiEasyMistake = '';
         q.aiBetterSolution = '';
         q.aiAnalysis = null;
+      }
+            // 同步更新历史错选
+      if (wrongIdx >= 0) {
+        // 保证记录最新
+        q.wrongHistory = [wrongIdx];
+        const history = q.attemptHistory || [];
+        history.unshift({ t: Date.now(), sel: wrongIdx, ok: false });
+        q.attemptHistory = history.slice(0, ATTEMPT_HISTORY_LIMIT);
+        if (answerChanged) q.wrongCount = (q.wrongCount || 0) + 1;
+      } else {
+        // 如果清空了误选，也清空历史
+        q.wrongHistory = [];
+        q.attemptHistory = [];
       }
     } catch (err) {
       console.error('[编辑] 应用修改失败：', err);
@@ -5666,7 +5702,7 @@ async function generateReport() {
     const level = getAnalysisLevel();   // 'all' | 'module' | 'type' | 'kp'
 
     // 构造用户数据
-    const dataPayload = buildAnalysisPayload(scope, level);
+    dataPayload = buildAnalysisPayload(scope, level);
 
     // 按层级选 system prompt
     const sys = buildAnalysisPrompt(level);
@@ -5699,7 +5735,7 @@ async function generateReport() {
     const reasoning = msg.reasoning_content || '';
 
     const report = {
-      _v: 2,
+      _v: 3,
       level,
       scope: { module: a.module, type: a.type, kp: a.kp },
       ...parsed,
@@ -5718,14 +5754,127 @@ async function generateReport() {
     renderView();
   }
 }
-
-/* 判断当前面包屑层级 */
-function getAnalysisLevel() {
+/* 构造给 AI 的数据 */
+function buildAnalysisPayload(scope, level) {
   const a = state.analysis;
-  if (a.kp) return 'kp';
-  if (a.type) return 'type';
-  if (a.module) return 'module';
-  return 'all';
+  const lines = [];
+
+  lines.push(`【层级】${scope.path.map(p => p.label).join(' > ')}`);
+  lines.push(`【错题总数】${scope.list.length}`);
+  lines.push(`【累计答错次数】${scope.totalWrong}`);
+
+  const rep3 = scope.list.filter(q => (q.wrongCount || 0) >= 3).length;
+  const rep5 = scope.list.filter(q => (q.wrongCount || 0) >= 5).length;
+  lines.push(`【反复错（≥3次）】${rep3} 道`);
+  if (rep5) lines.push(`【顽固错（≥5次）】${rep5} 道`);
+  lines.push('');
+
+  const dist = { '1次': 0, '2次': 0, '3-4次': 0, '5次+': 0 };
+  scope.list.forEach(q => {
+    const w = q.wrongCount || 0;
+    if (w <= 1) dist['1次']++;
+    else if (w === 2) dist['2次']++;
+    else if (w <= 4) dist['3-4次']++;
+    else dist['5次+']++;
+  });
+  const distStr = Object.entries(dist).filter(([k,v]) => v).map(([k,v]) => `${k}: ${v}道`).join('，');
+  lines.push(`【错误次数分布】${distStr}`);
+  lines.push('');
+
+  if (level === 'all') {
+    const byModule = {};
+    scope.list.forEach(q => {
+      const m = q.module || '未分类';
+      if (!byModule[m]) byModule[m] = { count: 0, wrong: 0, types: {}, kps: {} };
+      byModule[m].count++;
+      byModule[m].wrong += q.wrongCount || 0;
+      if (q.type) byModule[m].types[q.type] = (byModule[m].types[q.type] || 0) + 1;
+      (q.knowledgePoints || []).forEach(k => {
+        byModule[m].kps[k] = (byModule[m].kps[k] || 0) + (q.wrongCount || 0);
+      });
+    });
+    lines.push('【各模块错题分布（按累计答错次数降序）】');
+    Object.entries(byModule).sort((x, y) => y[1].wrong - x[1].wrong).forEach(([m, s]) => {
+      const topTypes = Object.entries(s.types).sort((x, y) => y[1] - x[1]).slice(0, 5)
+        .map(([t, c]) => `${t}(${c}题)`).join('、');
+      const topKps = Object.entries(s.kps).sort((x, y) => y[1] - x[1]).slice(0, 5)
+        .map(([k, c]) => `${k}(错${c}次)`).join('、');
+      lines.push(`- ${m}：${s.count} 题，累计错 ${s.wrong} 次`);
+      lines.push(`  常错题型：${topTypes || '—'}`);
+      lines.push(`  常错知识点：${topKps || '—'}`);
+    });
+    lines.push('');
+  }
+
+  if (level === 'module' || level === 'type') {
+    const byType = {};
+    scope.list.forEach(q => {
+      const t = q.type || '未分类';
+      if (!byType[t]) byType[t] = { count: 0, wrong: 0, kps: {}, repeated: 0 };
+      byType[t].count++;
+      byType[t].wrong += q.wrongCount || 0;
+      if ((q.wrongCount || 0) >= 3) byType[t].repeated++;
+      (q.knowledgePoints || []).forEach(k => {
+        byType[t].kps[k] = (byType[t].kps[k] || 0) + (q.wrongCount || 0);
+      });
+    });
+    lines.push('【各题型错题分布（按累计答错次数降序）】');
+    Object.entries(byType).sort((x, y) => y[1].wrong - x[1].wrong).forEach(([t, s]) => {
+      const topKps = Object.entries(s.kps).sort((x, y) => y[1] - x[1]).slice(0, 6)
+        .map(([k, c]) => `${k}(错${c}次)`).join('、');
+      lines.push(`- ${t}：${s.count} 题，累计错 ${s.wrong} 次，反复错 ${s.repeated} 道`);
+      lines.push(`  常错知识点：${topKps || '—'}`);
+    });
+    lines.push('');
+  }
+
+  if (scope.freq.length) {
+    lines.push('【知识点错误频次】');
+    scope.freq.slice(0, 15).forEach(f => {
+      lines.push(`- ${f.kp}：${f.count} 题，累计错 ${f.wrongSum} 次`);
+    });
+    lines.push('');
+  }
+
+  /* 误选模式 —— 判断错误类型的关键 */
+  const wrongChoiceMap = {};
+  scope.list.forEach(q => {
+    const recordWrong = (sel) => {
+      if (sel === undefined || sel === null) return;
+      const optText = (q.options[sel] || '').slice(0, 30);
+      if (!optText) return;
+      wrongChoiceMap[optText] = (wrongChoiceMap[optText] || 0) + 1;
+    };
+    (q.wrongHistory || []).forEach(recordWrong);
+    (q.attemptHistory || []).forEach(h => { if (!h.ok) recordWrong(h.sel); });
+  });
+  const topWrong = Object.entries(wrongChoiceMap).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  
+  if (topWrong.length) {
+    lines.push('【高频误选选项及陷阱分析（极其重要）】');
+    topWrong.forEach(([t, c]) => {
+      const exampleQ = scope.list.find(q => 
+        q.options.some(o => o && o.includes(t)) && q.options[q.correctIdx]
+      );
+      const correctText = exampleQ ? exampleQ.options[exampleQ.correctIdx].slice(0, 20) : '';
+      lines.push(`- 误选 "${t}" (${c}次) ${correctText ? ` [该题正确答案: "${correctText}"]` : ''}`);
+    });
+    lines.push('请务必深入分析这些高频误选背后的共性陷阱（如：偷换概念、绝对化、无中生有、条件遗漏等）。');
+    lines.push('');
+  }
+
+  lines.push('【错题明细（按错误次数降序，最多 25 条）】');
+  const sorted = [...scope.list].sort((a, b) => (b.wrongCount || 0) - (a.wrongCount || 0)).slice(0, 25);
+  sorted.forEach((q, i) => {
+    lines.push(`${i + 1}. [错${q.wrongCount || 0}次] ${q.module} · ${q.type}`);
+    lines.push(`   知识点：${(q.knowledgePoints || []).join('、')}`);
+    lines.push(`   题干：${q.stem.slice(0, 100)}${q.stem.length > 100 ? '…' : ''}`);
+    lines.push(`   正确答案：${String.fromCharCode(65 + q.correctIdx)}. ${q.options[q.correctIdx]}`);
+    const wrongOpts = (q.wrongHistory || []).map(i => `选${String.fromCharCode(65 + i)}. ${q.options[i].slice(0, 15)}`);
+    if (wrongOpts.length) lines.push(`   曾错选：${wrongOpts.join('；')}`);
+  });
+
+  return lines.join('\n');
 }
 
 /* 按层级生成 system prompt */
@@ -5821,129 +5970,13 @@ ${commonHead}
 
 ${commonTail}`;
 }
-
-/* 按层级生成 system prompt */
-function buildAnalysisPrompt(level) {
-  const commonHead = `【背景说明（极其重要）】
-- 这是用户的**错题本**，所有题目都是做错后才被收录的。
-- **绝对不要**计算或提及"正确率"，因为天然是 0%，毫无意义。
-- 你的任务是分析**错题本身的分布、错误次数、误选内容**，找出薄弱环节。
-
-【判断薄弱的依据】
-1. 错题在**哪个模块/题型/知识点**最集中 → 那个方向最薄弱
-2. **错误次数多**的题（≥3次）说明反复踩坑，是顽固短板
-3. **被误选的选项内容**能反映错误模式（如总选近义词、总被绝对化词骗、总选对策项）
-4. 累计答错次数按模块/题型排序，前几名是优先补强对象`;
-
-  const commonTail = `
-【输出格式】严格 JSON：
-{
-  "headline": "一句话诊断，15-25字，直指要害",
-  "evidence": ["数据证据1", "证据2", "证据3"],
-  "rootCause": {
-    "symptom": "表面现象，30-50字",
-    "deeper": "根本原因，50-80字",
-    "habit": "可能的不良做题习惯，30-50字"
-  },
-  "weakPoints": [
-    {
-      "name": "知识点/能力名",
-      "severity": "high|medium|low",
-      "evidence": "具体证据，引用错题数/错误次数/典型误选",
-      "impact": "放任不管的代价"
-    }
-  ],
-  "plan": [
-    {
-      "phase": "阶段名（如'第1周'）",
-      "goal": "可衡量的目标",
-      "actions": ["具体动作1", "动作2", "动作3"],
-      "check": "检验标准",
-      "time": "每天/每周投入"
-    }
-  ],
-  "doNot": ["要避免的误区1", "误区2"]
-}
-
-【通用要求】
-1. 禁用"加强练习""夯实基础""查漏补缺"这类废话。每条建议都要能落到具体动作。
-2. 建议必须可执行：说清楚"做什么、做多少、怎么检验"。
-3. 引用数据必须用具体数字（错题数、错误次数、误选内容）。
-4. **绝对不要提"正确率"**。
-5. 只返回 JSON，不要 markdown 代码块。`;
-
-  if (level === 'all') {
-    return `你是行测备考策略师。用户给你的是**全部错题**数据，请做**宏观战略诊断**。
-
-${commonHead}
-
-【核心任务】
-1. 从各模块的**错题数量分布**和**累计错误次数**，判断用户整体最大短板在哪。
-2. 指出**必须优先补强的 1-2 个模块**，并说明为什么（基于错题集中度）。
-3. 识别用户的"系统性弱点"——不是某个知识点，而是某种**能力缺失**（如审题太快、逻辑跳跃、总被近义词骗、对转折词不敏感）。
-4. 给出 2-3 个月的**分阶段战略**：第一阶段补什么、第二阶段练什么、第三阶段冲刺什么。
-5. 建议要有取舍——明确说"XX模块错题少，可以暂时放一放"。
-
-【输出要求】
-- weakPoints 聚焦**模块级**薄弱。
-- plan 是**长周期**的（2-3 个月），每阶段目标要体现"从 X 提升到 Y"。
-- 最后要有"战略优先级"判断：如果时间有限，先做什么。
-${commonTail}`;
-  }
-
-  if (level === 'module') {
-    return `你是行测单模块教练。用户给你的是**某个模块下的全部错题**，请做**模块级深度诊断**。
-
-${commonHead}
-
-【核心任务】
-1. 分析这个模块的错题分布：哪些**题型**错题最多、哪些**知识点**反复出现。
-2. 从**误选的选项内容**判断错误模式（如逻辑填空总选近义词、资料分析总算错单位）。
-3. 判断失分**根源**：是知识不牢？方法不对？还是某种**做题习惯**？
-4. 分题型给出**该模块特有的解题方法**：应该怎么读题、怎么排除、怎么验证。
-5. 给出**可操作的分阶段训练计划**。
-
-【输出要求】
-- weakPoints 聚焦**题型级或能力级**薄弱。
-- plan 具体到"每天做几道/几篇、用什么材料、怎么复盘"。
-- 如果能从错题分布看出**做题速度问题**，必须专门指出。
-${commonTail}`;
-  }
-
-  if (level === 'type') {
-    return `你是行测单题型教练。用户给你的是**某个题型下的全部错题**，请做**题型级深度诊断**。
-
-${commonHead}
-
-【核心任务】
-1. 分析该题型的**常见陷阱**：用户反复踩的坑是什么（从误选内容看）。
-2. 分析该题型的**解题套路**：正确的思考步骤应该是什么，用户在哪一步出错。
-3. 判断用户对这个题型的**掌握程度**：是完全不会？还是容易粗心？还是方法不到位？
-4. 给出**针对性训练方案**。
-
-【输出要求】
-- weakPoints 聚焦**知识点/解题环节级**薄弱。
-- plan 具体到"每天几道题、做完怎么复盘、错题怎么归类"。
-- 给出该题型的**3-5 条通用解题原则**。
-${commonTail}`;
-  }
-
-  return `你是行测知识点专项教练。用户给你的是**某个具体知识点下的全部错题**，请做**知识点级深度诊断**。
-
-${commonHead}
-
-【核心任务】
-1. 分析用户对这个知识点的**具体误区**：是从概念上就不清楚？还是应用时容易混淆？
-2. 指出这个知识点的**本质规律**（用通俗语言讲清楚，不要背定义）。
-3. 给出**这个知识点的通用解题步骤**：第一步看什么、第二步判断什么、第三步怎么选。
-4. 给出**针对性训练**。
-
-【输出要求】
-- headline 要说清"你的问题到底出在哪"（如"你把'转折'当'因果'，方向全错了"）。
-- evidence 要引用具体的错误选项和正确选项的对比。
-- rootCause.deeper 要讲**知识点的本质**，不是表面描述。
-- plan 要极其具体。
-${commonTail}`;
+/* 判断当前面包屑层级 */
+function getAnalysisLevel() {
+  const a = state.analysis;
+  if (a.kp) return 'kp';
+  if (a.type) return 'type';
+  if (a.module) return 'module';
+  return 'all';
 }
 
 
