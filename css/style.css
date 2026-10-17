@@ -3667,3 +3667,13 @@ details.card.collapsible > .card-body {
     width: 100%;
   }
 }
+/* 移动端禁掉高耗能的重绘动画，防止 Chrome 崩溃 */
+@media (max-width: 768px) {
+  .word-row-expand {
+    transition: none !important;
+  }
+  .word-row:hover {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+}

@@ -641,16 +641,27 @@ function pickWeightedWord(pool) {
 /* ============ 拼音工具 ============ */
 
 /* 取一个词的首字母（大写），无法识别返回 '#' */
-function getWordFirstLetter(word) {
+function getWordFirstLetter(word, wObj) {
   if (!word) return '#';
+  // 如果有缓存直接返回
+  if (wObj && wObj._firstLetter) return wObj._firstLetter;
+  
   const first = String(word)[0];
-  if (/[a-zA-Z]/.test(first)) return first.toUpperCase();
+  if (/[a-zA-Z]/.test(first)) {
+    if (wObj) wObj._firstLetter = first.toUpperCase();
+    return first.toUpperCase();
+  }
   try {
     if (window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') {
       const letter = window.pinyinPro.pinyin(first, { pattern: 'first', toneType: 'none' });
-      if (letter && /[a-zA-Z]/.test(letter[0])) return letter[0].toUpperCase();
+      if (letter && /[a-zA-Z]/.test(letter[0])) {
+        const L = letter[0].toUpperCase();
+        if (wObj) wObj._firstLetter = L;
+        return L;
+      }
     }
   } catch (e) {}
+  if (wObj) wObj._firstLetter = '#';
   return '#';
 }
 

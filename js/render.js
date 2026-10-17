@@ -2436,17 +2436,24 @@ function renderWordsPractice(view) {
     });
     view.querySelector('#wp-start').addEventListener('click', (e) => {
       e.preventDefault();
-      // 强制让输入框失焦，收起手机键盘
+      // 强制收起手机键盘
       if (document.activeElement) document.activeElement.blur();
       
-      const target = Math.min(state.wp.targetCount || 10, wordCount);
+      // 直接读取 DOM 当前的值，防止 state 同步延迟
+      const inputEl = view.querySelector('#wp-target');
+      const val = parseInt(inputEl ? inputEl.value : 10) || 10;
+      
+      const target = Math.min(val, wordCount);
       state.wp.targetCount = target;
+      
+      // 重置练习状态
       state.wp.session = { total: 0, correct: 0 };
       state.wp.wrongIds = [];
       state.wp.finished = false;
       state.wp.current = null;
       state.wp.answered = false;
       state.wp.selected = null;
+      
       renderView();
     });
     return;
@@ -2892,7 +2899,7 @@ function renderWordList(container) {
 
   /* ---- 字母筛选 ---- */
   if (state.wordsLetterFilter && state.wordsLetterFilter !== 'all') {
-    sorted = sorted.filter(w => getWordFirstLetter(w.word) === state.wordsLetterFilter);
+    sorted = sorted.filter(w => getWordFirstLetter(w.word, w) === state.wordsLetterFilter);
   }
 
   /* ---- 渲染 A-Z 索引条 ---- */
@@ -3083,7 +3090,7 @@ function renderWordAbcBar() {
   // 统计每个字母的词数
   const counts = {};
   words.forEach(w => {
-    const L = getWordFirstLetter(w.word);
+    const L = getWordFirstLetter(w.word, w);
     counts[L] = (counts[L] || 0) + 1;
   });
 
