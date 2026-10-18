@@ -2967,7 +2967,7 @@ function renderWordsManage(view) {
 function renderWordList(container) {
   if (!container) return;
   if (!words.length) {
-    container.innerHTML = `<p class="sub" style="padding:20px 0;text-align:center">还没有词条，点「➕ 添加词条」开始积累吧</p>`;
+    container.innerHTML = `<p class="sub" style="padding:20px 0;text-align:center">还没有词条，点「➕ 添加」开始积累吧</p>`;
     const pag = document.getElementById('wordPagination');
     if (pag) pag.innerHTML = '';
     const abcBar = document.getElementById('wordAbcBar');
