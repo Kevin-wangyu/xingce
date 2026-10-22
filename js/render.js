@@ -1242,6 +1242,7 @@ function renderExamIdle(view) {
 function bindExamIdleEvents(view) {
   const e = state.exam;
   const f = e.filter;
+  if (!view.querySelector('#exam-start')) return;
 
   view.querySelector('#exam-module').addEventListener('change', ev => {
     f.module = ev.target.value;
@@ -1255,6 +1256,10 @@ function bindExamIdleEvents(view) {
     f.knowledgePoints = [];
     renderView();
   });
+  const btnStart = view.querySelector('#exam-start');
+  if (btnStart) {
+    btnStart.addEventListener('click', startExam);
+  }
 
   view.querySelectorAll('.kp-chip').forEach(el => {
     el.addEventListener('click', () => {
@@ -1265,59 +1270,83 @@ function bindExamIdleEvents(view) {
       renderView();
     });
   });
-    view.querySelectorAll('.exam-count-quick').forEach(b => {
+  // 重新获取一次当前可用题数，避免在事件回调里取不到 available 报错
+  const currentAvailable = filterQuestions(e.filter);
+
+  view.querySelectorAll('.exam-count-quick').forEach(b => {
     b.addEventListener('click', () => {
       const n = parseInt(b.dataset.n);
-      e.count = n;
+      // 取用户点击的数字 和 当前可用题数 的较小值
+      const limit = Math.min(n, currentAvailable.length);
+      e.count = limit;
       
-      // 1. 同步更新输入框的值
+      // 同步更新输入框的值
       const input = view.querySelector('#exam-count');
-      if (input) input.value = n;
+      if (input) input.value = limit;
       
-      // 2. 同步更新智能复习按钮的文字
+      // 同步更新智能复习按钮
       const btnSmart = view.querySelector('#start-smart-review');
       if (btnSmart) {
         const totalReview = parseInt(btnSmart.dataset.reviewCount) || 0;
-        btnSmart.textContent = `开始复习 (${Math.min(totalReview, n)})`;
+        btnSmart.textContent = `开始复习 (${Math.min(totalReview, limit)})`;
       }
-      
-      // 注意：这里不要去调用 renderView()，避免页面闪烁和焦点丢失
     });
   });
 
   view.querySelector('#exam-count').addEventListener('input', ev => {
-    e.count = Math.max(1, parseInt(ev.target.value) || 1);
+    const val = parseInt(ev.target.value) || 1;
+    // 限制最大只能输入总题数
+    const limit = Math.min(val, currentAvailable.length); // ← 同样使用重新计算的值
+    e.count = Math.max(1, limit);
+    if (val > currentAvailable.length && ev.target.value !== String(currentAvailable.length)) {
+      ev.target.value = currentAvailable.length;
+    }
     
-    // 实时更新智能复习按钮上的数字
+    // 同步更新智能复习按钮
     const btnSmart = view.querySelector('#start-smart-review');
     if (btnSmart) {
       const totalReview = parseInt(btnSmart.dataset.reviewCount) || 0;
-      const n = Math.min(totalReview, e.count);
-      btnSmart.textContent = `开始复习 (${n})`;
+      btnSmart.textContent = `开始复习 (${Math.min(totalReview, e.count)})`;
     }
   });
 }
 
 /* ---- 开始考试 ---- */
 function startExam() {
-  const e = state.exam;
-  const pool = filterQuestions(e.filter);
-  if (!pool.length) { alert('没有可用题目'); return; }
-  const n = Math.min(e.count || 10, pool.length);
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  e.quiz = shuffled.slice(0, n).map(q => ({
-    id: q.id, stem: q.stem, options: q.options.slice(),
-    correctIdx: q.correctIdx, module: q.module, type: q.type,
-    knowledgePoints: (q.knowledgePoints || []).slice(),
-    originalExplanation: q.originalExplanation || '',
-    selected: null, answered: false
-  }));
-  e.current = 0;
-  e.startTime = Date.now();
-  e.endTime = 0;
-  e.results = [];
-  e.stage = 'running';
-  renderView();
+  try {
+    const e = state.exam;
+    const pool = filterQuestions(e.filter);
+    if (!pool.length) { alert('当前没有可用题目，请重新筛选'); return; }
+    
+    // 确保抽取数量不超过总题数
+    const n = Math.min(e.count || 10, pool.length);
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    
+    e.quiz = shuffled.slice(0, n).map(q => ({
+      id: q.id, 
+      stem: q.stem, 
+      options: q.options ? q.options.slice() : ['', '', '', ''],
+      correctIdx: q.correctIdx !== undefined ? q.correctIdx : 0, 
+      module: q.module || '未分类', 
+      type: q.type || '未分类',
+      knowledgePoints: (q.knowledgePoints || []).slice(),
+      originalExplanation: q.originalExplanation || '',
+      selected: null, 
+      answered: false
+    }));
+    
+    e.current = 0;
+    e.startTime = Date.now();
+    e.endTime = 0;
+    e.results = [];
+    e.stage = 'running';
+    
+    renderView();
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  } catch (err) {
+    console.error('开始考试失败:', err);
+    alert('开始考试失败：' + err.message);
+  }
 }
 
 /* ---- 进行中 ---- */
