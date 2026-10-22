@@ -146,7 +146,7 @@ const state = {
     chatInput: '',
     chatLoading: false,
     chatEditingIdx: null,   // 正在编辑第几条用户消息（null=不在编辑）
-    sortBy: 'wrongCount',
+    sortBy: 'createdAt',
     page: 1,
     pageSize: 20,
     returnMode: 'browse', // 'browse' | 'exam' | 'examRecord'
