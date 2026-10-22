@@ -88,7 +88,7 @@ function renderCollect(view) {
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <div style="font-size:22px">⚠️</div>
           <div style="flex:1;min-width:220px">
-            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px">尚未配置 AI</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px">尚未配置 API key</div>
             <div style="font-size:13px;color:var(--text-2);line-height:1.6">前往设置页填写 DeepSeek API Key，即可启用 AI 自动归类。</div>
           </div>
           <button class="btn primary" id="gotoSettingsBtn">去设置</button>
@@ -2967,7 +2967,7 @@ function renderWordsManage(view) {
 function renderWordList(container) {
   if (!container) return;
   if (!words.length) {
-    container.innerHTML = `<p class="sub" style="padding:20px 0;text-align:center">还没有词条，点「➕ 添加词条」开始积累吧</p>`;
+    container.innerHTML = `<p class="sub" style="padding:20px 0;text-align:center">还没有词条，点「➕ 添加」开始积累吧</p>`;
     const pag = document.getElementById('wordPagination');
     if (pag) pag.innerHTML = '';
     const abcBar = document.getElementById('wordAbcBar');
@@ -3800,10 +3800,10 @@ function renderBrowseDetail(view) {
   if (an.examStrategy || an.triggerAction) {
     html += `
       <div class="ai-block" style="background:linear-gradient(135deg,rgba(217,119,6,0.06),rgba(245,158,11,0.06));border-color:rgba(217,119,6,0.15)">
-        <div class="ai-block-head" style="color:var(--warn)"><span>⏱️</span><span>考场决策与触发</span></div>
+        <div class="ai-block-head" style="color:var(--warn)"><span>⏱️</span><span>考场决策</span></div>
         <div style="display:flex;flex-direction:column;gap:8px">
           ${an.examStrategy ? `<div style="font-size:13px;line-height:1.7;color:var(--text)"><b>时间策略：</b>${esc(an.examStrategy)}</div>` : ''}
-          ${an.triggerAction ? `<div style="font-size:13px;line-height:1.7;color:var(--text);background:var(--card);padding:8px 12px;border-radius:6px;border:1px dashed var(--border-strong)"><b>下次触发动作：</b>${esc(an.triggerAction)}</div>` : ''}
+          ${an.triggerAction ? `<div style="font-size:13px;line-height:1.7;color:var(--text);background:var(--card);padding:8px 12px;border-radius:6px;border:1px dashed var(--border-strong)"><b>遇到同类题该怎么办：</b>${esc(an.triggerAction)}</div>` : ''}
         </div>
       </div>
     `;
@@ -4970,7 +4970,7 @@ async function generateAnalysis(q, force = false) {
   ],
   "bestSolution": "【考场最优解法】在考场上最快最稳的方法是什么？（如代入、特值、尾数法）。不要讲长篇大论的常规解析，要秒杀思路。",
   "examStrategy": "【考场决策】这道题属于高频核心题还是边缘题？在考场上应该直接做、还是果断蒙/跳过？合理耗时是多少？",
-  "triggerAction": "【触发动作】下次遇到同类题，我的第一反应/第一步动作应该是什么？（如‘先圈否定词’、‘先看单位’）"
+  "triggerAction": "【如何思考】下次遇到同类题，我的第一反应/第一步动作应该是什么？（如‘先圈否定词’、‘先看单位’）"
 }
 
 【要求】
