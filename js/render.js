@@ -162,9 +162,11 @@ function renderCollect(view) {
         <div style="flex:1;min-width:220px">
           <div class="status-line" id="ocrStatus"></div>
           <div id="ocrEngineLabel" style="font-size:11px;color:var(--text-3);margin-top:6px;line-height:1.6">
-            ${canUsePaddle()
-              ? '🟢 主引擎 PaddleOCR（已就绪）· 识别失败时自动降级 Tesseract'
-              : '⚠️ 当前是 file:// 协议，仅使用 Tesseract。请改用同目录的启动脚本打开。'}
+            ${_paddleFailed 
+              ? '⚠️ <b style="color:var(--danger)">PaddleOCR 加载失败/超时</b>，已降级至 Tesseract（识别率较低）。请刷新页面重试。'
+              : canUsePaddle()
+                ? '🟢 主引擎 PaddleOCR（已就绪）· 识别失败时自动降级 Tesseract'
+                : '⚠️ 当前是 file:// 协议，仅使用 Tesseract。请改用同目录的启动脚本打开。'}
           </div>
         </div>
         <div id="collectFooter" style="display:none;flex-shrink:0;margin:0;flex-direction:column;align-items:flex-end">

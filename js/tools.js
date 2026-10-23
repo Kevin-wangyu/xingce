@@ -714,3 +714,35 @@ function getTodayReviewQuestions() {
   const now = Date.now();
   return questions.filter(q => getNextReviewTime(q) <= now);
 }
+
+/* 压缩图片（最长边 1600px，JPEG 0.85） */
+function compressImageForOCR(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 1600;
+      let w = img.width;
+      let h = img.height;
+      if (w > MAX || h > MAX) {
+        const ratio = Math.min(MAX / w, MAX / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(file); return; }
+        // 保留原文件名
+        resolve(new File([blob], file.name || 'image.jpg', { type: 'image/jpeg' }));
+      }, 'image/jpeg', 0.85);
+    };
+    img.onerror = () => resolve(file);
+    img.src = URL.createObjectURL(file);
+  });
+}

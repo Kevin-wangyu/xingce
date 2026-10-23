@@ -315,22 +315,46 @@ async function processOneImage(img, idx) {
   const total = state.collect.images.length;
   const prefix = total > 1 ? `第 ${idx + 1}/${total} 张 · ` : '';
 
-  /* 首选 PaddleOCR */
+  // 1. 先压缩图片（极大提高 Tesseract 识别率，降低 Paddle 内存压力）
+  const compressBlob = await compressImageForOCR(img.file);
+
+  // 2. 首选 PaddleOCR
   if (canUsePaddle() && !_paddleFailed) {
+    const setStatus = (html) => {
+      const st = document.getElementById('ocrStatus');
+      if (st) st.innerHTML = html;
+    };
+    setStatus(`<span class="spinner"></span>${prefix}PaddleOCR 加载/识别中…（首次需下载模型，请稍候）`);
+
     try {
       const t0 = performance.now();
-      img.ocrText = await ocrWithPaddle(img.file);
+      // 给 Paddle 加 45 秒超时（因为首次下载模型确实慢，但超时说明卡死了）
+      const paddlePromise = ocrWithPaddle(compressBlob);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('PaddleOCR 超时')), 45000)
+      );
+      
+      const text = await Promise.race([paddlePromise, timeoutPromise]);
+      
+      img.ocrText = text;
       img.status = 'done';
       console.log(`[OCR] 第${idx+1}张 PaddleOCR 完成，耗时 ${((performance.now() - t0) / 1000).toFixed(1)}s`);
       return;
     } catch (e) {
-      console.warn(`[OCR] 第${idx+1}张 PaddleOCR 失败，降级 Tesseract`, e);
+      console.warn(`[OCR] 第${idx+1}张 PaddleOCR 失败，降级 Tesseract。原因：`, e);
+      // 标记为失败，下次直接用 Tesseract
+      _paddleFailed = true; 
     }
   }
 
-  /* 降级 Tesseract */
+  // 3. 降级 Tesseract
+  const setStatus = (html) => {
+    const st = document.getElementById('ocrStatus');
+    if (st) st.innerHTML = html;
+  };
+  setStatus(`<span class="spinner"></span>${prefix}Tesseract 识别中…`);
   try {
-    const { data: { text } } = await Tesseract.recognize(img.file, 'chi_sim');
+    const { data: { text } } = await Tesseract.recognize(compressBlob, 'chi_sim');
     img.ocrText = text || '';
     img.status = 'done';
   } catch (e) {
