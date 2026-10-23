@@ -156,9 +156,14 @@ async function initPaddleOCR() {
   _paddleOcrPromise = (async () => {
     try {
       const mod = await import('https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm');
+      // 针对移动端，使用超轻量模型
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
       const ocr = await mod.PaddleOCR.create({
         lang: 'ch',
-        ocrVersion: 'PP-OCRv5',
+        // PP-OCRv6_tiny 模型体积仅约 1.5MB，是移动端的最佳选择
+        // 如果 v6 不可用，可以尝试 PP-OCRv4 或显式指定 PP-OCRv5_mobile 模型
+        ocrVersion: isMobile ? 'PP-OCRv6_tiny' : 'PP-OCRv5', 
         ortOptions: { backend: 'wasm' }
       });
       _paddleOcr = ocr;
