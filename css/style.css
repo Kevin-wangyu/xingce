@@ -3767,3 +3767,35 @@ details.card.collapsible > .card-body {
 }
 /* 阻止 summary 标记被撑开 */
 summary::-webkit-details-marker { display: none; }
+
+/* ============ 划词添加词库浮动按钮 ============ */
+#selectionAddWordBtn {
+  position: fixed;
+  z-index: 9999;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(99,102,241,0.35);
+  display: none;
+  align-items: center;
+  gap: 4px;
+  transition: transform 0.1s, box-shadow 0.1s;
+  font-family: inherit;
+  user-select: none;
+}
+#selectionAddWordBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(99,102,241,0.45);
+}
+#selectionAddWordBtn:active {
+  transform: scale(0.96);
+}
+#selectionAddWordBtn:disabled {
+  opacity: 0.8;
+  cursor: wait;
+}

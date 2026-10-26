@@ -368,3 +368,143 @@ document.addEventListener('visibilitychange', () => {
     }
   }
 });
+
+/* ============ 划词添加到词库 ============ */
+let _selBtn = null;
+let _selTimer = null;
+
+function initSelectionAddWord() {
+  _selBtn = document.createElement('button');
+  _selBtn.id = 'selectionAddWordBtn';
+  _selBtn.innerHTML = '➕ 添加到词库';
+  document.body.appendChild(_selBtn);
+
+  // 阻止点击按钮时失去选区
+  _selBtn.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  _selBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const selection = window.getSelection();
+    const word = selection.toString().trim();
+    if (!word) { hideSelectionBtn(); return; }
+
+    // 查重
+    if (words.some(w => w.word === word)) {
+      showToast(`「${word}」已在词库中`);
+      hideSelectionBtn();
+      return;
+    }
+
+    if (!getApiKey()) {
+      showToast('请先在设置页配置 API Key');
+      hideSelectionBtn();
+      return;
+    }
+
+    const originalHTML = _selBtn.innerHTML;
+    _selBtn.disabled = true;
+    _selBtn.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px;margin-right:4px"></span>生成中...';
+
+    try {
+      const info = await fetchWordInfo(word);
+      
+      // 二次查重（防并发）
+      if (words.some(w => w.word === word)) {
+        showToast(`「${word}」已在词库中`);
+      } else {
+        const newWord = {
+          id: uid(), word: word, correct: info.correct || '',
+          distractors: info.distractors || [], synonyms: info.synonyms || [],
+          note: info.note || '', wrong: 0, right: 0,
+          lastPracticedAt: 0, createdAt: Date.now()
+        };
+        words.push(newWord);
+        saveWord(newWord);
+        showToast(`已添加「${word}」`);
+        
+        // 如果当前在词库管理页，实时刷新列表
+        if (state.mode === 'words' && state.wordsTab === 'manage') {
+           const container = document.getElementById('wordListContainer');
+           if (container) renderWordList(container);
+           const titleEl = document.querySelector('.card-title');
+           if (titleEl && titleEl.textContent.includes('词库')) {
+               titleEl.textContent = `词库 · 共 ${words.length} 条`;
+           }
+        }
+      }
+    } catch (err) {
+      console.error('[划词添加] 失败：', err);
+      showToast('生成失败：' + err.message);
+    } finally {
+      _selBtn.disabled = false;
+      _selBtn.innerHTML = originalHTML;
+      hideSelectionBtn();
+      window.getSelection().removeAllRanges(); // 清除选区
+    }
+  });
+}
+
+function hideSelectionBtn() {
+  if (_selBtn) _selBtn.style.display = 'none';
+}
+
+function handleSelectionChange() {
+  if (_selTimer) clearTimeout(_selTimer);
+  
+  // 200ms 防抖，防止拖动鼠标时频繁触发
+  _selTimer = setTimeout(() => {
+    const selection = window.getSelection();
+    const word = selection.toString().trim();
+    
+    // 限制：2-8个纯汉字
+    if (!word || word.length < 2 || word.length > 8 || !/^[\u4e00-\u9fa5]+$/.test(word)) {
+      hideSelectionBtn();
+      return;
+    }
+    
+    // 如果在输入框里划词，不触发
+    const activeTag = document.activeElement.tagName.toLowerCase();
+    if (activeTag === 'input' || activeTag === 'textarea') {
+      hideSelectionBtn();
+      return;
+    }
+
+    if (selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    
+    // 如果选区不可见（比如隐藏元素），不触发
+    if (rect.width === 0 || rect.height === 0) return;
+    
+    _selBtn.style.display = 'flex';
+    
+    // 计算位置：放在选区的右上方
+    const top = rect.top - 38; 
+    const left = rect.left + (rect.width / 2) - (_selBtn.offsetWidth / 2);
+    
+    // 边界保护：防止超出屏幕
+    _selBtn.style.top = Math.max(10, top) + 'px';
+    _selBtn.style.left = Math.min(window.innerWidth - _selBtn.offsetWidth - 10, Math.max(10, left)) + 'px';
+  }, 200);
+}
+
+// 监听选区变化
+document.addEventListener('selectionchange', handleSelectionChange);
+// 移动端补充监听
+document.addEventListener('touchend', handleSelectionChange);
+// 点击空白处隐藏按钮
+document.addEventListener('mousedown', (e) => {
+  if (_selBtn && !_selBtn.contains(e.target)) {
+    hideSelectionBtn();
+  }
+});
+// 滚动页面时隐藏按钮
+document.addEventListener('scroll', hideSelectionBtn, { passive: true });
+
+// 初始化按钮
+initSelectionAddWord();

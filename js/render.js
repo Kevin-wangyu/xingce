@@ -1098,9 +1098,14 @@ function renderExamIdle(view) {
   const reviewPool = available.filter(q => getNextReviewTime(q) <= now);
   const reviewCount = reviewPool.length;
 
-  const kpSet = new Set();
-  available.forEach(q => (q.knowledgePoints || []).forEach(k => kpSet.add(k)));
-  const kpList = [...kpSet].sort();
+  const kpCountMap = new Map();
+  available.forEach(q => (q.knowledgePoints || []).forEach(k => {
+    kpCountMap.set(k, (kpCountMap.get(k) || 0) + 1);
+  }));
+  // 降序排列：如果次数相同，按拼音/字母排序
+  const kpList = [...kpCountMap.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+    .map(item => item[0]);
 
   const types = f.module === 'all' ? Object.values(CATEGORIES).flat() : (CATEGORIES[f.module] || []);
   const maxCount = available.length;
@@ -1161,13 +1166,18 @@ function renderExamIdle(view) {
       <div class="kp-wrap scrollable" id="exam-kp-wrap" style="min-height:44px">
         ${kpList.length ? kpList.map(k => {
           const sel = f.knowledgePoints.includes(k);
+          const count = kpCountMap.get(k) || 0;
           return `<button class="kp-chip ${sel ? 'on' : ''}" data-kp="${esc(k)}" style="
             padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;
             border:1px solid ${sel ? 'var(--primary)' : 'var(--border-strong)'};
             background:${sel ? 'var(--primary)' : 'var(--card)'};
             color:${sel ? '#fff' : 'var(--text-2)'};
             cursor:pointer;font-family:inherit;transition:all .15s
-          ">${esc(k)}</button>`;
+          ">${esc(k)}
+            <span style="opacity:0.6;font-size:10px;font-family:ui-monospace,monospace">
+              ${count}
+            </span>
+          </button>`;
         }).join('') : '<span style="color:var(--text-3);font-size:12px">当前范围内没有知识点</span>'}
       </div>
 
@@ -1726,9 +1736,14 @@ function renderBrowseList(view) {
   ) : pool;
 
   const types = f.module === 'all' ? Object.values(CATEGORIES).flat() : (CATEGORIES[f.module] || []);
-  const kpSet = new Set();
-  filtered.forEach(q => (q.knowledgePoints || []).forEach(k => kpSet.add(k)));
-  const kpList = [...kpSet].sort();
+  const kpCountMap = new Map();
+  filtered.forEach(q => (q.knowledgePoints || []).forEach(k => {
+    kpCountMap.set(k, (kpCountMap.get(k) || 0) + 1);
+  }));
+  // 降序排列：如果次数相同，按拼音/字母排序
+  const kpList = [...kpCountMap.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+    .map(item => item[0]);
 
   if (!questions.length) {
     view.innerHTML = `
@@ -1802,13 +1817,18 @@ function renderBrowseList(view) {
       <div class="kp-wrap scrollable" style="min-height:44px">
         ${kpList.length ? kpList.map(k => {
           const sel = f.knowledgePoints.includes(k);
+          const count = kpCountMap.get(k) || 0;
           return `<button class="browse-kp" data-kp="${esc(k)}" style="
             padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;
             border:1px solid ${sel ? 'var(--primary)' : 'var(--border-strong)'};
             background:${sel ? 'var(--primary)' : 'var(--card)'};
             color:${sel ? '#fff' : 'var(--text-2)'};
             cursor:pointer;font-family:inherit;transition:all .15s
-          ">${esc(k)}</button>`;
+          ">${esc(k)}
+            <span style="opacity:0.6;font-size:10px;font-family:ui-monospace,monospace">
+              ${count}
+            </span>
+          </button>`;
         }).join('') : '<span style="color:var(--text-3);font-size:12px">当前范围内没有知识点</span>'}
       </div>
 
