@@ -3718,3 +3718,52 @@ details.card.collapsible > .card-body {
 
 .exam-record-arrow { color: var(--text-3); flex-shrink: 0; transition: transform .15s, color .15s; }
 .exam-record-row:hover .exam-record-arrow { color: var(--primary); transform: translateX(3px); }
+
+/* ============ 折叠卡片 summary 快捷操作区 ============ */
+.summary-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 8px;
+  margin-right: 4px;
+}
+.summary-controls .mini-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.summary-controls .mini-group span {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 400;
+}
+.mini-select {
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary);
+  outline: none;
+  cursor: pointer;
+  padding: 0 2px;
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: center;
+  font-family: inherit;
+}
+.mini-select option {
+  background: var(--card);
+  color: var(--text);
+}
+.summary-stars .star-picker {
+  gap: 0;
+}
+.summary-stars .star-picker .star {
+  font-size: 14px !important;
+}
+/* 阻止 summary 标记被撑开 */
+summary::-webkit-details-marker { display: none; }

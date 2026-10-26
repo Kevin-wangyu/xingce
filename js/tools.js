@@ -746,3 +746,13 @@ function compressImageForOCR(file) {
     img.src = URL.createObjectURL(file);
   });
 }
+/* 仅更新星级 DOM 状态，不重建 DOM 避免事件丢失 */
+function updateStarsUI(wrapEl, val) {
+  if (!wrapEl) return;
+  const picker = wrapEl.querySelector('.star-picker');
+  if (!picker) return;
+  picker.dataset.value = val;
+  picker.querySelectorAll('.star').forEach((el, i) => {
+    el.classList.toggle('on', i < val);
+  });
+}

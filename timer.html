@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>防烧屏 · 记录计时器</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+/* ==================== 计时器专属防烧屏样式 ==================== */
+* { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+body {
+    background: #000000; min-height: 100vh;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    font-family: 'Courier New', Courier, 'JetBrains Mono', monospace;
+    overflow: hidden; padding: 20px; touch-action: none;
+}
+#timerDisplay {
+    color: #fff; font-size: clamp(3.2rem, 22vw, 12rem);
+    font-weight: 700; letter-spacing: 2px;
+    text-shadow: 0 0 30px rgba(255,255,255,0.05);
+    font-variant-numeric: tabular-nums; text-align: center;
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    width: 100%; min-height: 60vh; line-height: 1.2; transition: none;
+}
+#timerDisplay.breathing { animation: breath 2s ease-in-out forwards; }
+@keyframes breath { 0%{opacity:1;} 50%{opacity:0.2;} 100%{opacity:1;} }
+
+.controls {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-wrap: wrap; gap: 10px 14px; justify-content: center;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: 14px 22px; border-radius: 60px;
+    border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 8px 40px rgba(0,0,0,0.9);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.4s ease, transform 0.3s ease;
+    transform: translateX(-50%) translateY(10px);
+    z-index: 100; max-width: 95%; width: auto;
+}
+.controls.visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+@media (max-width: 700px) {
+    .controls { padding: 12px 14px; gap: 8px 10px; border-radius: 40px; bottom: 20px; }
+}
+.controls button {
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    color: #fff; padding: 8px 16px; border-radius: 50px;
+    font-size: 0.85rem; font-weight: 500; cursor: pointer;
+    transition: all 0.2s ease; letter-spacing: 0.3px;
+    backdrop-filter: blur(4px); box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    font-family: inherit; flex: 0 1 auto; min-width: 60px; white-space: nowrap;
+}
+.controls button:active { transform: scale(0.94); }
+.controls button#startBtn { background: rgba(0,200,255,0.2); border-color: rgba(0,200,255,0.35); }
+.controls button#resetBtn { background: rgba(255,80,80,0.15); border-color: rgba(255,80,80,0.25); }
+.controls button#fullscreenBtn { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); }
+.controls button.module-btn { background: rgba(255,215,0,0.15); border-color: rgba(255,215,0,0.25); }
+.controls button.exam-btn { background: rgba(255,100,150,0.15); border-color: rgba(255,100,150,0.3); }
+.controls button.back-btn { background: rgba(100,200,100,0.15); border-color: rgba(100,200,100,0.3); }
+.status-hint {
+    color: rgba(255,255,255,0.4); font-size: 0.6rem; align-self: center;
+    background: rgba(0,0,0,0.3); padding: 4px 12px; border-radius: 30px;
+    border: 1px solid rgba(255,255,255,0.04); text-align: center;
+    flex: 1 1 100%; letter-spacing: 0.3px;
+}
+:-webkit-full-screen #timerDisplay { min-height: 80vh; }
+:-moz-full-screen #timerDisplay { min-height: 80vh; }
+:fullscreen #timerDisplay { min-height: 80vh; }
+
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    display: none; justify-content: center; align-items: center; z-index: 200; padding: 20px;
+}
+.modal-overlay.active { display: flex; }
+.modal-card {
+    background: #1a1a1a; border-radius: 24px; padding: 28px 30px;
+    max-width: 620px; width: 100%; max-height: 90vh; overflow-y: auto;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.9);
+    color: #eee; font-family: 'Courier New', monospace;
+}
+.modal-card h2 {
+    font-weight: 400; font-size: 1.4rem; margin-bottom: 18px;
+    letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: 12px;
+}
+.modal-card .field { margin-bottom: 14px; }
+.modal-card label {
+    display: block; font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 1px; color: rgba(255,255,255,0.5); margin-bottom: 4px;
+}
+.modal-card input, .modal-card select, .modal-card textarea {
+    width: 100%; padding: 10px 14px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px; color: #fff;
+    font-size: 0.95rem; font-family: inherit; outline: none;
+    transition: border 0.2s;
+}
+.modal-card input:focus, .modal-card select:focus, .modal-card textarea:focus {
+    border-color: rgba(255,255,255,0.3);
+}
+.modal-card textarea { resize: vertical; min-height: 60px; }
+select option { background: #222; color: #fff; }
+.modal-card .btn-row {
+    display: flex; gap: 12px; justify-content: flex-end;
+    margin-top: 20px; flex-wrap: wrap;
+}
+.modal-card .btn-row button {
+    padding: 10px 28px; border-radius: 40px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.06); color: #fff;
+    font-size: 0.9rem; cursor: pointer; transition: all 0.2s;
+    font-family: inherit;
+}
+.modal-card .btn-row button:hover { background: rgba(255,255,255,0.12); }
+.modal-card .btn-row button.primary { background: rgba(0,200,255,0.2); border-color: rgba(0,200,255,0.3); }
+.modal-card .btn-row button.primary:hover { background: rgba(0,200,255,0.3); }
+.modal-card .btn-row button.danger { background: rgba(255,80,80,0.15); border-color: rgba(255,80,80,0.2); }
+.modal-card .btn-row button.danger:hover { background: rgba(255,80,80,0.25); }
+.modal-card .btn-row button.export-csv { background: rgba(0,200,255,0.15); border-color: rgba(0,200,255,0.2); }
+.modal-card .btn-row button.export-txt { background: rgba(255,200,0,0.15); border-color: rgba(255,200,0,0.2); }
+.modal-card .close-btn {
+    float: right; background: none; border: none;
+    color: rgba(255,255,255,0.3); font-size: 1.6rem;
+    cursor: pointer; line-height: 1; padding: 0 4px;
+}
+.modal-card .close-btn:hover { color: #fff; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 480px) { .grid-2 { grid-template-columns: 1fr; } }
+
+.record-item {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    margin-bottom: 4px; border-radius: 8px;
+    transition: background 0.15s;
+}
+.record-item:hover { background: rgba(255,255,255,0.03); }
+.record-item .summary {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 6px 12px; font-size: 0.85rem;
+}
+.record-item .summary .date { color: rgba(255,255,255,0.6); min-width: 140px; }
+.record-item .summary .time { color: rgba(255,255,255,0.7); }
+.record-item .summary .module { color: #7af; }
+.record-item .summary .accuracy { color: #8f8; }
+.record-item .summary .score { color: #ff6; font-weight: bold; }
+.record-item .summary .actions { margin-left: auto; display: flex; gap: 6px; }
+.record-item .summary .edit-btn,
+.record-item .summary .del-btn {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #ccc; padding: 2px 10px; border-radius: 30px;
+    font-size: 0.72rem; cursor: pointer;
+    transition: background 0.2s; font-family: inherit; white-space: nowrap;
+}
+.record-item .summary .edit-btn:hover {
+    background: rgba(255,215,0,0.2); border-color: rgba(255,215,0,0.3); color: #fff;
+}
+.record-item .summary .del-btn:hover {
+    background: rgba(255,80,80,0.2); border-color: rgba(255,80,80,0.3); color: #fff;
+}
+.record-item .detail {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px dashed rgba(255,255,255,0.08);
+    font-size: 0.85rem; color: rgba(255,255,255,0.7);
+    display: none;
+}
+.record-item .detail .label { color: rgba(255,255,255,0.4); margin-right: 6px; }
+.record-item.expanded .detail { display: block; }
+.no-records { text-align: center; color: rgba(255,255,255,0.3); padding: 30px 0; font-size: 0.9rem; }
+
+.chart-container { position: relative; height: 300px; width: 100%; margin-top: 20px; }
+.chart-container canvas { width: 100% !important; height: 100% !important; }
+.chart-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.chart-tab {
+    padding: 8px 20px; border-radius: 40px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.6); cursor: pointer; font-family: inherit;
+    font-size: 0.85rem; transition: all 0.2s;
+}
+.chart-tab.active {
+    background: rgba(0,200,255,0.2); border-color: rgba(0,200,255,0.4); color: #fff;
+}
+
+.modal-card::-webkit-scrollbar { width: 4px; }
+.modal-card::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+.modal-card::-webkit-scrollbar-track { background: transparent; }
+
+.menu-btn {
+    width: 100%; padding: 16px 20px !important;
+    font-size: 1rem !important; text-align: center;
+    background: rgba(255,255,255,0.06) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    border-radius: 16px !important; cursor: pointer;
+    color: #fff; font-family: inherit; transition: all 0.2s;
+}
+.menu-btn:hover { background: rgba(255,255,255,0.12) !important; }
+.menu-btn.primary { background: rgba(255,215,0,0.18) !important; border-color: rgba(255,215,0,0.35) !important; }
+.menu-btn.exam { background: rgba(255,100,150,0.2) !important; border-color: rgba(255,100,150,0.4) !important; }
+body.cursor-hidden, body.cursor-hidden * { cursor: none !important; }
+.controls button.settings-btn { background: rgba(150, 150, 150, 0.15); border-color: rgba(150, 150, 150, 0.3); }
+
+.settings-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); }
+.settings-section h3 { font-size: 0.85rem; font-weight: 400; color: rgba(255,255,255,0.55); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; }
+.gist-status { margin-top: 12px; padding: 10px 14px; background: rgba(255,255,255,0.04); border-radius: 10px; font-size: 0.8rem; color: rgba(255,255,255,0.6); min-height: 38px; word-break: break-all; font-family: 'Courier New', monospace; }
+.gist-status.ok { color: #7f7; }
+.gist-status.err { color: #f77; }
+.gist-status.loading { color: #7af; }
+.gist-hint { font-size: 0.7rem; color: rgba(255,255,255,0.35); margin-top: 6px; line-height: 1.5; }
+.gist-hint a { color: rgba(120, 180, 255, 0.8); text-decoration: none; }
+.gist-hint a:hover { text-decoration: underline; }
+
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+@media (max-width: 900px) { .modal-card { max-width: 92vw; } .chart-container { height: 280px; } }
+@media (max-width: 700px) {
+    body { padding: calc(10px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left)); }
+    #timerDisplay { font-size: clamp(2.6rem, 18vw, 6rem); letter-spacing: 1.5px; min-height: 50vh; }
+    .controls { padding: 10px 12px; gap: 6px 8px; border-radius: 30px; bottom: calc(15px + env(safe-area-inset-bottom)); max-width: 96vw; }
+    .controls button { padding: 8px 12px; font-size: 0.78rem; min-width: 44px; }
+    .status-hint { font-size: 0.55rem; padding: 3px 10px; margin-top: 4px; }
+    .modal-card { padding: 20px 18px; border-radius: 18px; max-height: 92vh; max-width: 96vw; }
+    .modal-card h2 { font-size: 1.15rem; margin-bottom: 14px; padding-bottom: 10px; }
+    .modal-card .field { margin-bottom: 12px; }
+    .modal-card input, .modal-card select, .modal-card textarea { padding: 10px 12px; font-size: 0.9rem; border-radius: 10px; }
+    .modal-card .btn-row { gap: 8px; }
+    .modal-card .btn-row button { padding: 10px 18px; font-size: 0.82rem; flex: 1 1 auto; min-width: 0; }
+    .chart-container { height: 240px; margin-top: 14px; }
+    .record-item { padding: 10px 12px; }
+    .record-item .summary { font-size: 0.78rem; gap: 4px 8px; }
+    .record-item .summary .date { min-width: auto; flex: 1 1 100%; }
+    .record-item .summary .actions { flex: 1 1 100%; margin-left: 0; justify-content: flex-end; }
+    .menu-btn { padding: 14px 16px !important; font-size: 0.95rem !important; }
+    .settings-section h3 { font-size: 0.75rem; }
+    .gist-status { font-size: 0.75rem; padding: 8px 12px; }
+    .gist-hint { font-size: 0.65rem; }
+}
+@media (max-width: 480px) {
+    #timerDisplay { font-size: clamp(2.2rem, 16vw, 4.5rem); letter-spacing: 1px; }
+    .controls { padding: 8px 10px; gap: 5px 6px; }
+    .controls button { padding: 7px 10px; font-size: 0.72rem; min-width: 40px; flex: 1 0 auto; }
+    .modal-card { padding: 18px 14px; }
+    .modal-card .btn-row { flex-direction: column; gap: 8px; }
+    .modal-card .btn-row button { width: 100%; padding: 12px 16px; }
+    .chart-container { height: 200px; }
+    .grid-2 { grid-template-columns: 1fr; gap: 8px; }
+    .chart-tab { padding: 6px 12px; font-size: 0.75rem; flex: 1 1 auto; text-align: center; }
+    .record-item .summary .edit-btn, .record-item .summary .del-btn { padding: 3px 10px; font-size: 0.68rem; }
+}
+@media (hover: none) and (pointer: coarse) {
+    body.cursor-hidden, body.cursor-hidden * { cursor: auto !important; }
+    .controls button:hover, .record-item:hover { background: rgba(255,255,255,0.03); }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+    #timerDisplay { font-size: clamp(7rem, 10vw, 4rem); min-height: auto; margin: 10px 0; }
+    .controls { bottom: calc(8px + env(safe-area-inset-bottom)); padding: 6px 10px; gap: 4px 6px; }
+    .controls button { padding: 6px 10px; font-size: 0.7rem; }
+    .status-hint { display: none; }
+    .modal-card { max-height: 95vh; }
+    .chart-container { height: 180px; }
+}
+@media (max-width: 700px) {
+    :fullscreen #timerDisplay, :-webkit-full-screen #timerDisplay, :-moz-full-screen #timerDisplay { font-size: min(13vw, 10vh); min-height: 55vh; letter-spacing: 0.5px; padding: 0 6px; overflow: hidden; }
+    :fullscreen .controls, :-webkit-full-screen .controls { padding: 6px 8px; gap: 4px; border-radius: 20px; max-width: 98vw; bottom: calc(10px + env(safe-area-inset-bottom)); }
+    :fullscreen .controls button, :-webkit-full-screen .controls button { padding: 7px 9px; font-size: 0.65rem; min-width: 0; flex: 0 1 auto; letter-spacing: 0; }
+    :fullscreen .status-hint, :-webkit-full-screen .status-hint { display: none; }
+    :fullscreen .controls button, :-webkit-full-screen .controls button { font-size: 0; padding: 8px 10px; min-width: 38px; }
+    :fullscreen .controls button::before, :-webkit-full-screen .controls button::before { font-size: 1.05rem; line-height: 1; }
+    :fullscreen #startBtn::before { content: '▶'; }
+    :fullscreen #resetBtn::before { content: '↺'; }
+    :fullscreen #moduleBtn::before { content: '📚'; }
+    :fullscreen #examBtn::before  { content: '🎓'; }
+    :fullscreen #settingsBtn::before { content: '⚙️'; }
+    :fullscreen #startBtn.paused::before { content: '⏸'; }
+    :fullscreen #backBtn::before { content: '🏠'; }
+}
+@media (max-width: 700px) { #timerDisplay { font-size: min(19vw, 15vh); letter-spacing: -0.5px; line-height: 1; padding: 0; margin: 0; min-height: 0; width: 100%; overflow: hidden; } }
+@media (max-width: 420px) { #timerDisplay { font-size: min(19.5vw, 15vh); letter-spacing: -1px; } }
+@media (max-height: 500px) and (orientation: landscape) { #timerDisplay { font-size: min(13vw, 22vh); letter-spacing: -0.5px; } }
+@media (max-width: 700px) { :fullscreen #timerDisplay, :-webkit-full-screen #timerDisplay { font-size: min(20vw, 18vh); letter-spacing: -1px; } }
+@media (max-height: 500px) and (orientation: landscape) {
+    .controls { flex-wrap: nowrap; padding: 5px 8px; gap: 4px; max-width: 98vw; overflow: visible; border-radius: 24px; bottom: calc(6px + env(safe-area-inset-bottom)); }
+    .controls button { padding: 7px 9px; font-size: 0; min-width: 36px; flex: 0 0 auto; white-space: nowrap; }
+    .controls button::before { font-size: 1.05rem; line-height: 1; display: inline-block; }
+    #startBtn::before { content: '▶'; }
+    #resetBtn::before { content: '↺'; }
+    #fullscreenBtn::before { content: '⛶'; }
+    #moduleBtn::before { content: '📚'; }
+    #examBtn::before { content: '🎓'; }
+    #settingsBtn::before { content: '⚙️'; }
+    #backBtn::before { content: '🏠'; }
+    #startBtn.paused::before { content: '⏸'; }
+    .status-hint { display: none; }
+}
+    </style>
+</head>
+<body>
+    <div id="timerDisplay"></div>
+    <div class="controls" id="controls">
+        <button id="startBtn">▶ 开始</button>
+        <button id="resetBtn">↺ 重置</button>
+        <button id="fullscreenBtn">⛶ 全屏</button>
+        <button id="moduleBtn" class="module-btn">📚 模块</button>
+        <button id="examBtn" class="exam-btn">🎓 考试</button>
+        <button id="settingsBtn" class="settings-btn">⚙️ 设置</button>
+        <button id="backBtn" class="back-btn" onclick="location.href='index.html'">🏠 返回</button>
+        <span class="status-hint" id="statusHint">⚡ 自动常亮</span>
+    </div>
+
+    <!-- 模块菜单 -->
+    <div class="modal-overlay" id="moduleMenuModal">
+        <div class="modal-card" style="max-width: 380px;">
+            <button class="close-btn" id="closeModuleMenu">&times;</button>
+            <h2>📚 模块</h2>
+            <div style="display:flex; flex-direction:column; gap:12px; margin-top:8px;">
+                <button id="moduleRecordBtn" class="menu-btn primary">📝 模块记录</button>
+                <button id="moduleViewBtn" class="menu-btn">📋 查看记录</button>
+                <button id="moduleChartBtn" class="menu-btn">📈 图表</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 考试菜单 -->
+    <div class="modal-overlay" id="examMenuModal">
+        <div class="modal-card" style="max-width: 380px;">
+            <button class="close-btn" id="closeExamMenu">&times;</button>
+            <h2>🎓 考试</h2>
+            <div style="display:flex; flex-direction:column; gap:12px; margin-top:8px;">
+                <button id="examRecordBtn" class="menu-btn exam">📝 考试记录</button>
+                <button id="examViewBtn" class="menu-btn">📋 查看考试记录</button>
+                <button id="examChartBtn" class="menu-btn">📈 图表</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模块记录表单 -->
+    <div class="modal-overlay" id="moduleRecordModal">
+        <div class="modal-card">
+            <button class="close-btn" id="closeModuleRecord">&times;</button>
+            <h2 id="moduleRecordTitle">📝 模块记录</h2>
+            <div class="field"><label>📅 日期时间</label><input type="text" id="moduleDate" placeholder="例如：2025-01-01 12:00:00"></div>
+            <div class="field"><label>⏱ 用时</label><input type="text" id="moduleTime" placeholder="例如：00:05:30"></div>
+            <div class="field"><label>📂 模块</label>
+                <select id="moduleSelect">
+                    <option value="政治">政治</option><option value="常识">常识</option>
+                    <option value="言语">言语</option><option value="数量">数量</option>
+                    <option value="判断">判断</option><option value="资料">资料</option>
+                </select>
+            </div>
+            <div class="field"><label>🎯 正确率</label><input type="text" id="moduleAccuracy" placeholder="输入如 8/10 或 80（自动转%）"></div>
+            <div class="field"><label>❌ 错误原因</label><input type="text" id="moduleError" placeholder="简要描述错误原因"></div>
+            <div class="field"><label>📝 备注</label><textarea id="moduleRemark" placeholder="可选备注"></textarea></div>
+            <div class="btn-row"><button id="cancelModuleRecord">取消</button><button id="saveModuleRecord" class="primary">💾 保存</button></div>
+        </div>
+    </div>
+
+    <!-- 模块查看记录 -->
+    <div class="modal-overlay" id="moduleViewModal">
+        <div class="modal-card">
+            <button class="close-btn" id="closeModuleView">&times;</button>
+            <h2>📋 模块记录</h2>
+            <div id="moduleRecordList"></div>
+            <div class="btn-row" style="justify-content:space-between; margin-top:12px;">
+                <button id="clearModuleRecords" class="danger">🗑 清空全部</button>
+                <div style="display:flex; gap:8px;">
+                    <button id="exportModuleCsv" class="export-csv">📊 导出 CSV</button>
+                    <button id="exportModuleTxt" class="export-txt">📄 导出 TXT</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模块图表 -->
+    <div class="modal-overlay" id="moduleChartModal">
+        <div class="modal-card" style="max-width: 800px;">
+            <button class="close-btn" id="closeModuleChart">&times;</button>
+            <h2>📈 模块正确率趋势</h2>
+            <div class="field"><label>选择模块</label>
+                <select id="chartModule">
+                    <option value="政治">政治</option><option value="常识">常识</option>
+                    <option value="言语">言语</option><option value="数量">数量</option>
+                    <option value="判断">判断</option><option value="资料">资料</option>
+                </select>
+            </div>
+            <div class="chart-container"><canvas id="moduleChartCanvas"></canvas></div>
+            <div id="moduleChartNoData" style="display:none; text-align:center; padding:20px; color:rgba(255,255,255,0.5);">该模块暂无记录</div>
+        </div>
+    </div>
+
+    <!-- 考试记录表单 -->
+    <div class="modal-overlay" id="examRecordModal">
+        <div class="modal-card">
+            <button class="close-btn" id="closeExamRecord">&times;</button>
+            <h2 id="examRecordTitle">📝 考试记录</h2>
+            <div class="field"><label>📅 日期时间</label><input type="text" id="examDate" placeholder="例如：2025-01-01 12:00:00"></div>
+            <div class="field"><label>⏱ 计时时间</label><input type="text" id="examTime" placeholder="例如：02:00:00"></div>
+            <div style="margin-top:6px; margin-bottom:6px; font-size:0.75rem; letter-spacing:1px; color:rgba(255,255,255,0.5); text-transform:uppercase;">各模块正确率</div>
+            <div class="grid-2">
+                <div class="field"><label>政治</label><input type="text" class="exam-accuracy" data-module="政治" placeholder="如 8/10"></div>
+                <div class="field"><label>常识</label><input type="text" class="exam-accuracy" data-module="常识" placeholder="如 8/10"></div>
+                <div class="field"><label>言语</label><input type="text" class="exam-accuracy" data-module="言语" placeholder="如 8/10"></div>
+                <div class="field"><label>数量</label><input type="text" class="exam-accuracy" data-module="数量" placeholder="如 8/10"></div>
+                <div class="field"><label>判断</label><input type="text" class="exam-accuracy" data-module="判断" placeholder="如 8/10"></div>
+                <div class="field"><label>资料</label><input type="text" class="exam-accuracy" data-module="资料" placeholder="如 8/10"></div>
+            </div>
+            <div class="field"><label>🎯 最终得分</label><input type="text" id="examScore" placeholder="例如：85"></div>
+            <div class="field"><label>❌ 错误原因</label><input type="text" id="examError" placeholder="简要描述错误原因"></div>
+            <div class="field"><label>📝 备注</label><textarea id="examRemark" placeholder="可选备注"></textarea></div>
+            <div class="btn-row"><button id="cancelExamRecord">取消</button><button id="saveExamRecord" class="primary">💾 保存</button></div>
+        </div>
+    </div>
+
+    <!-- 查看考试记录 -->
+    <div class="modal-overlay" id="examViewModal">
+        <div class="modal-card">
+            <button class="close-btn" id="closeExamView">&times;</button>
+            <h2>📋 考试记录</h2>
+            <div id="examRecordList"></div>
+            <div class="btn-row" style="justify-content:space-between; margin-top:12px;">
+                <button id="clearExamRecords" class="danger">🗑 清空全部</button>
+                <div style="display:flex; gap:8px;">
+                    <button id="exportExamCsv" class="export-csv">📊 导出 CSV</button>
+                    <button id="exportExamTxt" class="export-txt">📄 导出 TXT</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 考试图表 -->
+    <div class="modal-overlay" id="examChartModal">
+        <div class="modal-card" style="max-width: 900px;">
+            <button class="close-btn" id="closeExamChart">&times;</button>
+            <h2>📈 考试图表</h2>
+            <div class="chart-tabs">
+                <button class="chart-tab active" data-tab="score">📊 考试分数变化</button>
+                <button class="chart-tab" data-tab="modules">📈 模块正确率变化</button>
+            </div>
+            <div id="scoreChartContainer" class="chart-container"><canvas id="examScoreChart"></canvas></div>
+            <div id="modulesChartContainer" class="chart-container" style="display:none;"><canvas id="examModulesChart"></canvas></div>
+            <div id="examChartNoData" style="display:none; text-align:center; padding:20px; color:rgba(255,255,255,0.5);">暂无考试记录</div>
+        </div>
+    </div>
+
+    <!-- 设置页 -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-card">
+            <button class="close-btn" id="closeSettings">&times;</button>
+            <h2>⚙️ 设置</h2>
+            <div class="settings-section">
+                <h3>📦 数据备份</h3>
+                <div class="btn-row" style="justify-content:flex-start;">
+                    <button id="exportAllBtn" class="export-csv">📤 导出全部数据</button>
+                    <button id="importAllBtn" class="export-txt">📥 导入数据</button>
+                </div>
+                <input type="file" id="importFileInput" accept=".json,application/json" style="display:none;">
+                <div class="gist-hint">导出为 JSON 文件，包含模块记录与考试记录。导入将<b>替换</b>现有数据。</div>
+            </div>
+            <div class="settings-section">
+                <h3>☁️ GitHub Gist 同步</h3>
+                <div class="field"><label>Gist ID（留空自动查找或创建）</label><input type="text" id="gistId" placeholder="留空自动管理"></div>
+                <div class="field"><label>GitHub Token</label><input type="password" id="gistToken" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off"></div>
+                <div class="btn-row" style="justify-content:flex-start;"><button id="syncGistBtn" class="primary">🔄 立即同步</button></div>
+                <div id="gistStatus" class="gist-status">未同步</div>
+                <div class="gist-hint">Token 需要 <b>gist</b> 权限，<a href="https://github.com/settings/tokens/new?scopes=gist&description=TimerBackup" target="_blank">点击此处创建</a>。<br>多个设备使用相同 Token 会自动绑定同一个 Gist。</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+(function() {
+    'use strict';
+
+    // 为了防止与主项目数据冲突，将所有存储 Key 加上前缀
+    const MODULE_STORAGE = 'xc_timer_module_records';
+    const EXAM_STORAGE = 'xc_timer_exam_records';
+    const SETTINGS_STORAGE = 'xc_timer_settings';
+
+    // ---------- DOM ----------
+    const timerDisplay = document.getElementById('timerDisplay');
+    const startBtn = document.getElementById('startBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const statusHint = document.getElementById('statusHint');
+    const controls = document.getElementById('controls');
+
+    const moduleMenuModal = document.getElementById('moduleMenuModal');
+    const moduleRecordModal = document.getElementById('moduleRecordModal');
+    const moduleViewModal = document.getElementById('moduleViewModal');
+    const moduleChartModal = document.getElementById('moduleChartModal');
+    const moduleRecordTitle = document.getElementById('moduleRecordTitle');
+    const moduleDate = document.getElementById('moduleDate');
+    const moduleTime = document.getElementById('moduleTime');
+    const moduleSelect = document.getElementById('moduleSelect');
+    const moduleAccuracy = document.getElementById('moduleAccuracy');
+    const moduleError = document.getElementById('moduleError');
+    const moduleRemark = document.getElementById('moduleRemark');
+    const moduleRecordList = document.getElementById('moduleRecordList');
+    const chartModuleSelect = document.getElementById('chartModule');
+    const moduleChartCanvas = document.getElementById('moduleChartCanvas');
+    const moduleChartNoData = document.getElementById('moduleChartNoData');
+
+    const examMenuModal = document.getElementById('examMenuModal');
+    const examRecordModal = document.getElementById('examRecordModal');
+    const examViewModal = document.getElementById('examViewModal');
+    const examChartModal = document.getElementById('examChartModal');
+    const examRecordTitle = document.getElementById('examRecordTitle');
+    const examDate = document.getElementById('examDate');
+    const examTime = document.getElementById('examTime');
+    const examScore = document.getElementById('examScore');
+    const examError = document.getElementById('examError');
+    const examRemark = document.getElementById('examRemark');
+    const examRecordList = document.getElementById('examRecordList');
+    const examScoreChartCanvas = document.getElementById('examScoreChart');
+    const examModulesChartCanvas = document.getElementById('examModulesChart');
+    const examChartNoData = document.getElementById('examChartNoData');
+    const scoreChartContainer = document.getElementById('scoreChartContainer');
+    const modulesChartContainer = document.getElementById('modulesChartContainer');
+
+    let moduleChart = null;
+    let examScoreChart = null;
+    let examModulesChart = null;
+
+    const ALL_MODULES = ['政治','常识','言语','数量','判断','资料'];
+
+    let seconds = 0;
+    let timerInterval = null;
+    let isRunning = false;
+
+    let wakeLock = null;
+    let wakeLockSupported = 'wakeLock' in navigator;
+
+    let hideTimeout = null;
+    let cursorTimeout = null;
+
+    function showControls() {
+        controls.classList.add('visible');
+        if (hideTimeout) clearTimeout(hideTimeout);
+        const isTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+        const delay = isTouch ? 8000 : 3000;
+        hideTimeout = setTimeout(() => controls.classList.remove('visible'), delay);
+    }
+
+    function showCursor() {
+        document.body.classList.remove('cursor-hidden');
+        if (cursorTimeout) clearTimeout(cursorTimeout);
+        cursorTimeout = setTimeout(() => {
+            document.body.classList.add('cursor-hidden');
+        }, 2000);
+    }
+
+    document.addEventListener('mousemove', () => { showControls(); showCursor(); });
+    document.addEventListener('touchstart', showControls);
+    document.addEventListener('mouseleave', () => { document.body.classList.add('cursor-hidden'); });
+    controls.addEventListener('mouseenter', () => { if (hideTimeout) clearTimeout(hideTimeout); });
+    controls.addEventListener('mouseleave', showControls);
+
+    setTimeout(showControls, 100);
+    setTimeout(showCursor, 100);
+
+    function formatTime(totalSec) {
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+    function updateDisplay() { timerDisplay.textContent = formatTime(seconds); }
+    function triggerBreath() {
+        timerDisplay.classList.remove('breathing');
+        void timerDisplay.offsetWidth;
+        timerDisplay.classList.add('breathing');
+    }
+    setInterval(triggerBreath, 15000);
+    setTimeout(triggerBreath, 500);
+
+    async function requestWakeLock() {
+        if (!wakeLockSupported) { statusHint.textContent = '⚠️ 不支持常亮'; return false; }
+        if (wakeLock) return true;
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            wakeLock.addEventListener('release', () => {
+                wakeLock = null;
+                statusHint.textContent = '🔓 常亮已释放';
+            });
+            statusHint.textContent = '✅ 常亮已激活';
+            return true;
+        } catch (err) {
+            statusHint.textContent = '❌ 常亮被拒 (需HTTPS)';
+            return false;
+        }
+    }
+    async function releaseWakeLock() {
+        if (wakeLock) { try { await wakeLock.release(); } catch(e) {} wakeLock = null; }
+        statusHint.textContent = '🔓 常亮已释放';
+    }
+    async function toggleTimer() {
+        if (isRunning) {
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+            isRunning = false;
+            startBtn.textContent = '▶ 继续';
+            startBtn.classList.add('paused');
+            await releaseWakeLock();
+            statusHint.textContent = '⏸️ 已暂停 · 常亮已释放';
+            return;
+        }
+        if (!wakeLock) await requestWakeLock();
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(() => { seconds++; updateDisplay(); }, 1000);
+        isRunning = true;
+        startBtn.textContent = '⏸ 暂停';
+        startBtn.classList.remove('paused');
+        statusHint.textContent = '▶ 计时中 · 常亮启用';
+    }
+    async function resetTimer() {
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        isRunning = false;
+        seconds = 0;
+        updateDisplay();
+        startBtn.textContent = '▶ 开始';
+        startBtn.classList.remove('paused');
+        await releaseWakeLock();
+        statusHint.textContent = '↺ 已重置 · 常亮已释放';
+        showControls();
+    }
+    function toggleFullscreen() {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            const el = document.documentElement;
+            const req = el.requestFullscreen || el.webkitRequestFullscreen;
+            if (req) {
+                req.call(el).then(() => document.body.classList.add('is-fullscreen')).catch(() => {
+                    statusHint.textContent = '⚠️ 全屏被拒';
+                });
+            }
+        } else {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exit) { exit.call(document).then(() => document.body.classList.remove('is-fullscreen')); }
+        }
+    }
+    document.addEventListener('fullscreenchange', () => {
+        const isFs = !!document.fullscreenElement;
+        document.body.classList.toggle('is-fullscreen', isFs);
+        fullscreenBtn.textContent = isFs ? '⛶ 退出' : '⛶ 全屏';
+    });
+
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible' && isRunning && wakeLockSupported && !wakeLock) {
+            await requestWakeLock();
+        }
+    });
+
+    function autoCalculateAccuracy(inputElement) {
+        if (!inputElement) return;
+        let val = inputElement.value.trim();
+        if (!val) return;
+        if (val.includes('/')) {
+            const parts = val.split('/');
+            if (parts.length === 2) {
+                const num = parseFloat(parts[0]);
+                const den = parseFloat(parts[1]);
+                if (!isNaN(num) && !isNaN(den) && den !== 0) {
+                    inputElement.value = (num / den * 100).toFixed(1) + '%';
+                    return;
+                }
+            }
+        }
+        if (!val.includes('%')) {
+            const num = parseFloat(val);
+            if (!isNaN(num)) inputElement.value = num + '%';
+        }
+    }
+    moduleAccuracy.addEventListener('blur', function() { autoCalculateAccuracy(this); });
+    document.querySelectorAll('.exam-accuracy').forEach(input => {
+        input.addEventListener('blur', function() { autoCalculateAccuracy(this); });
+    });
+
+    function escapeCsvField(field) {
+        if (field === null || field === undefined) return '""';
+        const str = String(field);
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+            return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+    }
+    function downloadFile(content, filename, mimeType) {
+        const blob = new Blob(['\uFEFF' + content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
+    function parseAccuracy(accStr) {
+        if (!accStr) return 0;
+        let num = parseFloat(String(accStr).trim().replace('%',''));
+        return isNaN(num) ? 0 : num;
+    }
+
+    // ==================== 模块菜单 ====================
+    function openModuleMenu() { moduleMenuModal.classList.add('active'); showControls(); }
+    function closeModuleMenu() { moduleMenuModal.classList.remove('active'); }
+
+    function getModuleRecords() {
+        try { return JSON.parse(localStorage.getItem(MODULE_STORAGE)) || []; } catch { return []; }
+    }
+    function saveModuleRecords(r) { localStorage.setItem(MODULE_STORAGE, JSON.stringify(r)); }
+
+    let editingModuleTimestamp = null;
+
+    function openModuleRecordModal(recordData = null) {
+        if (recordData) {
+            editingModuleTimestamp = recordData.timestamp;
+            moduleRecordTitle.textContent = '✏️ 编辑模块记录';
+            moduleDate.value = recordData.date || '';
+            moduleTime.value = recordData.timeUsed || '';
+            moduleSelect.value = recordData.module || '常识';
+            moduleAccuracy.value = recordData.accuracy || '';
+            moduleError.value = recordData.errorReason || '';
+            moduleRemark.value = recordData.remark || '';
+        } else {
+            editingModuleTimestamp = null;
+            moduleRecordTitle.textContent = '📝 模块记录';
+            const now = new Date();
+            moduleDate.value = now.toLocaleString('zh-CN', { hour12: false });
+            moduleTime.value = formatTime(seconds);
+            moduleAccuracy.value = '';
+            moduleError.value = '';
+            moduleRemark.value = '';
+        }
+        moduleRecordModal.classList.add('active');
+        showControls();
+    }
+    function closeModuleRecordModal() {
+        moduleRecordModal.classList.remove('active');
+        editingModuleTimestamp = null;
+    }
+
+    function saveModuleRecord() {
+        const date = moduleDate.value.trim() || '未知日期';
+        const timeUsed = moduleTime.value.trim() || '00:00:00';
+        const module = moduleSelect.value;
+        let accuracy = moduleAccuracy.value.trim() || '未填写';
+        const errorReason = moduleError.value.trim() || '无';
+        const remark = moduleRemark.value.trim() || '无';
+
+        let records = getModuleRecords();
+        if (editingModuleTimestamp !== null) {
+            const idx = records.findIndex(r => r.timestamp === editingModuleTimestamp);
+            if (idx !== -1) {
+                records[idx] = { ...records[idx], date, timeUsed, module, accuracy, errorReason, remark };
+                saveModuleRecords(records);
+                statusHint.textContent = '✅ 记录已更新';
+            } else {
+                alert('记录不存在'); closeModuleRecordModal(); return;
+            }
+        } else {
+            records.push({ date, timeUsed, module, accuracy, errorReason, remark, timestamp: Date.now() });
+            saveModuleRecords(records);
+            statusHint.textContent = '✅ 记录已保存';
+        }
+        closeModuleRecordModal();
+        if (moduleViewModal.classList.contains('active')) renderModuleRecords();
+        setTimeout(() => {
+            statusHint.textContent = isRunning ? '▶ 计时中 · 常亮启用' : '⏸️ 已暂停 · 常亮已释放';
+        }, 2000);
+    }
+
+    function openModuleViewModal() { renderModuleRecords(); moduleViewModal.classList.add('active'); showControls(); }
+    function closeModuleViewModal() { moduleViewModal.classList.remove('active'); }
+
+    function renderModuleRecords() {
+        const records = getModuleRecords();
+        if (records.length === 0) {
+            moduleRecordList.innerHTML = `<div class="no-records">📭 暂无记录</div>`;
+            return;
+        }
+        const sorted = [...records].reverse();
+        let html = '';
+        sorted.forEach(rec => {
+            html += `
+                <div class="record-item">
+                    <div class="summary">
+                        <span class="date">${rec.date}</span>
+                        <span class="time">⏱ ${rec.timeUsed}</span>
+                        <span class="module">${rec.module}</span>
+                        <span class="accuracy">${rec.accuracy}</span>
+                        <div class="actions">
+                            <button class="edit-btn" data-timestamp="${rec.timestamp}">✏️ 编辑</button>
+                            <button class="del-btn" data-timestamp="${rec.timestamp}">🗑 删除</button>
+                        </div>
+                    </div>
+                    <div class="detail">
+                        <div><span class="label">❌ 错误原因：</span>${rec.errorReason}</div>
+                        <div><span class="label">📝 备注：</span>${rec.remark}</div>
+                    </div>
+                </div>`;
+        });
+        moduleRecordList.innerHTML = html;
+        moduleRecordList.querySelectorAll('.record-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                if (e.target.closest('.edit-btn') || e.target.closest('.del-btn')) return;
+                this.classList.toggle('expanded');
+            });
+        });
+        moduleRecordList.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const ts = parseInt(this.dataset.timestamp);
+                const rec = getModuleRecords().find(r => r.timestamp === ts);
+                if (rec) { closeModuleViewModal(); openModuleRecordModal(rec); }
+            });
+        });
+        moduleRecordList.querySelectorAll('.del-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const ts = parseInt(this.dataset.timestamp);
+                if (!confirm('确定删除这条记录吗？')) return;
+                let records = getModuleRecords();
+                records = records.filter(r => r.timestamp !== ts);
+                saveModuleRecords(records);
+                renderModuleRecords();
+                statusHint.textContent = '🗑 已删除';
+                setTimeout(() => {
+                    statusHint.textContent = isRunning ? '▶ 计时中 · 常亮启用' : '⏸️ 已暂停 · 常亮已释放';
+                }, 2000);
+            });
+        });
+    }
+
+    function exportModuleRecords(format) {
+        const records = getModuleRecords();
+        if (records.length === 0) { alert('暂无记录可导出'); return; }
+        const headers = ['日期','用时','模块','正确率','错误原因','备注'];
+        const rows = records.map(r => [r.date, r.timeUsed, r.module, r.accuracy, r.errorReason, r.remark]);
+        const content = [headers.map(escapeCsvField).join(','), ...rows.map(r => r.map(escapeCsvField).join(','))].join('\n');
+        const mime = format === 'csv' ? 'text/csv;charset=utf-8;' : 'text/plain;charset=utf-8;';
+        downloadFile(content, `module_records_${new Date().toISOString().slice(0,10)}.${format}`, mime);
+        statusHint.textContent = `📤 已导出 ${format.toUpperCase()}`;
+        setTimeout(() => {
+            statusHint.textContent = isRunning ? '▶ 计时中 · 常亮启用' : '⏸️ 已暂停 · 常亮已释放';
+        }, 2000);
+    }
+    function clearAllModuleRecords() {
+        if (confirm('确定要删除所有模块记录吗？')) {
+            saveModuleRecords([]); renderModuleRecords();
+            statusHint.textContent = '🗑 已清空';
+            setTimeout(() => {
+                statusHint.textContent = isRunning ? '▶ 计时中 · 常亮启用' : '⏸️ 已暂停 · 常亮已释放';
+            }, 2000);
+        }
+    }
+
+    function openModuleChartModal() { moduleChartModal.classList.add('active'); showControls(); generateModuleChart(); }
+    function closeModuleChartModal() {
+        moduleChartModal.classList.remove('active');
+        if (moduleChart) { moduleChart.destroy(); moduleChart = null; }
+    }
+    function generateModuleChart() {
+        const module = chartModuleSelect.value;
+        const records = getModuleRecords();
+        const filtered = records.filter(r => r.module === module).sort((a,b) => a.timestamp - b.timestamp);
+        if (filtered.length === 0) {
+            moduleChartNoData.style.display = 'block';
+            if (moduleChart) { moduleChart.destroy(); moduleChart = null; }
+            return;
+        }
+        moduleChartNoData.style.display = 'none';
+        const labels = filtered.map((_, i) => `第${i+1}次`);
+        const data = filtered.map(r => parseAccuracy(r.accuracy));
+        const dateTimes = filtered.map(r => r.date);
+        if (moduleChart) { moduleChart.destroy(); moduleChart = null; }
+        const ctx = moduleChartCanvas.getContext('2d');
+        moduleChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets: [{ label: `${module} 正确率`, data, borderColor: '#7af', backgroundColor: 'rgba(100,180,255,0.1)', borderWidth: 2, pointBackgroundColor: '#7af', pointBorderColor: '#fff', pointRadius: 3, tension: 0.2, fill: true }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#eee', font: { family: 'Courier New', size: 12 } } }, tooltip: { callbacks: { label: c => `正确率: ${c.parsed.y}%`, afterLabel: c => `📅 ${dateTimes[c.dataIndex] || ''}` } } }, scales: { x: { ticks: { color: '#aaa', maxTicksLimit: 20, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }, y: { ticks: { color: '#aaa', callback: v => v + '%', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' }, min: 0, max: 100 } } }
+        });
+    }
+
+    // ==================== 考试 ====================
+    function getExamRecords() {
+        try { return JSON.parse(localStorage.getItem(EXAM_STORAGE)) || []; } catch { return []; }
+    }
+    function saveExamRecords(r) { localStorage.setItem(EXAM_STORAGE, JSON.stringify(r)); }
+
+    let editingExamTimestamp = null;
+
+    function openExamMenu() { examMenuModal.classList.add('active'); showControls(); }
+    function closeExamMenu() { examMenuModal.classList.remove('active'); }
+
+    function openExamRecordModal(recordData = null) {
+        if (recordData) {
+            editingExamTimestamp = recordData.timestamp;
+            examRecordTitle.textContent = '✏️ 编辑考试记录';
+            examDate.value = recordData.date || '';
+            examTime.value = recordData.timeUsed || '';
+            const accs = recordData.accuracies || {};
+            document.querySelectorAll('.exam-accuracy').forEach(input => {
+                const mod = input.dataset.module;
+                input.value = accs[mod] || '';
+            });
+            examScore.value = recordData.score || '';
+            examError.value = recordData.errorReason || '';
+            examRemark.value = recordData.remark || '';
+        } else {
+            editingExamTimestamp = null;
+            examRecordTitle.textContent = '📝 考试记录';
+            const now = new Date();
+            examDate.value = now.toLocaleString('zh-CN', { hour12: false });
+            examTime.value = formatTime(seconds);
+            document.querySelectorAll('.exam-accuracy').forEach(input => input.value = '');
+            examScore.value = '';
+            examError.value = '';
+            examRemark.value = '';
+        }
+        examRecordModal.classList.add('active');
+        showControls();
+    }
+    function closeExamRecordModal() {
+        examRecordModal.classList.remove('active');
+        editingExamTimestamp = null;
+    }
+
+    function saveExamRecord() {
+        const date = examDate.value.trim() || '未知日期';
+        const timeUsed = examTime.value.trim() || '00:00:00';
+        const accuracies = {};
+        document.querySelectorAll('.exam-accuracy').forEach(input => {
+            const mod = input.dataset.module;
+            accuracies[mod] = input.value.trim() || '未填写';
+        });
+        const score = examScore.value.trim() || '未填写';
+        const errorReason = examError.value.trim() || '无';
+        const remark = examRemark.value.trim() || '无';
+
+        let records = getExamRecords();
+        if (editingExamTimestamp !== null) {
+            const idx = records.findIndex(r => r.timestamp === editingExamTimestamp);
+            if (idx !== -1) {
+                records[idx] = { ...records[idx], date, timeUsed, accuracies, score, errorReason, remark };
+                saveExamRecords(records);
+                statusHint.textContent = '✅ 考试记录已更新';
+            } else {
+                alert('记录不存在'); closeExamRecordModal(); return;
+            }
+        } else {
+            records.push({ date, timeUsed, accuracies, score, errorReason, remark, timestamp: Date.now() });
+            saveExamRecords(records);
+            statusHint.textContent = '✅ 考试记录已保存';
+        }
+        closeExamRecordModal();
+        if (examViewModal.classList.contains('active')) renderExamRecords();
+        setTimeout(() => {
+            statusHint.textContent = isRunning ? '▶ 计时中 · 常亮启用' : '⏸️ 已暂停 · 常亮已释放';
+        }, 2000);
+    }
+
+    function openExamViewModal() { renderExamRecords(); examViewModal.classList.add('active'); showControls(); }
+    function closeExamViewModal() { examViewModal.classList.remove('active'); }
+
+    function renderExamRecords() {
+        const records = getExamRecords();
+        if (records.length === 0) {
+            examRecordList.innerHTML = `<div class="no-records">📭 暂无考试记录</div>`;
+            return;
+        }
+        const sorted = [...records].reverse();
+        let html = '';
+        sorted.forEach(rec => {
+            const accs = rec.accuracies || {};
+            const values = ALL_MODULES.map(m => parseAccuracy(accs[m])).filter(v => v !== 0 || accs[m]);
+            const avg = values.length ? (values.reduce((a,b) => a+b, 0) / values.length).toFixed(1) + '%' : '—';
+
+            let accHtml = '';
+            ALL_MODULES.forEach(m => {
+                const val = accs[m] || '—';
+                accHtml += `<span style="margin-right:12px;">${m}: <b style="color:#8f8;">${val}</b></span>`;
+            });
+
+            html += `
+                <div class="record-item" data-timestamp="${rec.timestamp}">
+                    <div class="summary">
+                        <span class="date">${rec.date}</span>
+                        <span class="time">⏱ ${rec.timeUsed}</span>
+                        <span class="score">🎯 ${rec.score}</span>
+                        <span class="accuracy">均 ${avg}</span>
+                        <div class="actions">
+                            <button class="edit-btn" data-timestamp="${rec.timestamp}">✏️ 编辑</button>
+                            <button class="del-btn" data-timestamp="${rec.timestamp}">🗑 删除</button>
+                        </div>
+                    </div>
+                    <div class="detail">
+                        <div style="margin-bottom:6px;">${accHtml}</div>
+                        <div><span class="label">❌ 错误原因：</span>${rec.errorReason}</div>
+                        <div><span class="label">📝 备注：</span>${rec.remark}</div>
+                    </div>
+                </div>`;
+        });
+        examRecordList.innerHTML = html;
+
+        examRecordList.querySelectorAll('.record-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                if (e.target.closest('.edit-btn') || e.target.closest('.del-btn')) return;
+                this.classList.toggle('expanded');
+            });
+        });
+        examRecordList.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const ts = parseInt(this.dataset.timestamp);
+                const rec = getExamRecords().find(r => r.timestamp === ts);
+                if (rec) { closeExamViewModal(); openExamRecordModal(rec); }
+            });
+        });
+        examRecordList.querySelectorAll('.del-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const ts = parseInt(this.dataset.timestamp);
+                if (!confirm('确定删除这条考试记录吗？')) return;
+                let records = getExamRecords();
+                records = records.filter(r => r.timestamp !== ts);
+                saveExamRecords(records);
+                renderExamRecords();
+                statusHint.textContent = '🗑 已删除';
+                setTimeout(() => {
+                    statusHint.textContent = isRunning ? '▶ 计时中 · 常亮启用' : '⏸️ 已暂停 · 常亮已释放';
+                }, 2000);
+            });
+        });
+    }
+
+    function exportExamRecords(format) {
+        const records = getExamRecords();
+        if (records.length === 0) { alert('暂无考试记录可导出'); return; }
+        const headers = ['日期','用时','政治','常识','言语','数量','判断','资料','最终得分','错误原因','备注'];
+        const rows = records.map(r => {
+            const accs = r.accuracies || {};
+            return [
+                r.date, r.timeUsed,
+                accs['政治'] || '',accs['常识'] || '', accs['言语'] || '', 
+                accs['数量'] || '',accs['判断'] || '', accs['资料'] || '',
+                r.score, r.errorReason, r.remark
+            ];
+        });
+        const content = [headers.map(escapeCsvField).join(','), ...rows.map(r => r.map(escapeCsvField).join(','))].join('\n');
+        const mime = format === 'csv' ? 'text/csv;charset=utf-8;' : 'text/plain;charset=utf-8;';
+        downloadFile(content, `exam_records_${new Date().toISOString().slice(0,10)}.${format}`, mime);
+        statusHint.textContent = `📤 已导出考试记录 ${format.toUpperCase()}`;
+        setTimeout(() => {
+            statusHint.textContent = isRunning ? '▶ 计时中 · 常亮启用' : '⏸️ 已暂停 · 常亮已释放';
+        }, 2000);
+    }
+    function clearAllExamRecords() {
+        if (confirm('确定要删除所有考试记录吗？')) {
+            saveExamRecords([]); renderExamRecords();
+            statusHint.textContent = '🗑 已清空考试记录';
+            setTimeout(() => {
+                statusHint.textContent = isRunning ? '▶ 计时中 · 常亮启用' : '⏸️ 已暂停 · 常亮已释放';
+            }, 2000);
+        }
+    }
+
+    function openExamChartModal() {
+        examChartModal.classList.add('active');
+        showControls();
+        document.querySelectorAll('.chart-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'score'));
+        scoreChartContainer.style.display = 'block';
+        modulesChartContainer.style.display = 'none';
+        generateExamCharts();
+    }
+    function closeExamChartModal() {
+        examChartModal.classList.remove('active');
+        if (examScoreChart) { examScoreChart.destroy(); examScoreChart = null; }
+        if (examModulesChart) { examModulesChart.destroy(); examModulesChart = null; }
+    }
+
+    function generateExamCharts() {
+        const records = getExamRecords();
+        if (records.length === 0) {
+            examChartNoData.style.display = 'block';
+            scoreChartContainer.style.display = 'none';
+            modulesChartContainer.style.display = 'none';
+            return;
+        }
+        examChartNoData.style.display = 'none';
+        const sorted = [...records].sort((a,b) => a.timestamp - b.timestamp);
+        const labels = sorted.map((_, i) => `第${i+1}次`);
+        const dateTimes = sorted.map(r => r.date);
+
+        const scoreData = sorted.map(r => {
+            const s = parseFloat(String(r.score).replace('%',''));
+            return isNaN(s) ? null : s;
+        });
+
+        if (examScoreChart) { examScoreChart.destroy(); examScoreChart = null; }
+        const ctx1 = examScoreChartCanvas.getContext('2d');
+        examScoreChart = new Chart(ctx1, {
+            type: 'line',
+            data: { labels, datasets: [{ label: '考试分数', data: scoreData, borderColor: '#ff6', backgroundColor: 'rgba(255,255,100,0.1)', borderWidth: 2, pointBackgroundColor: '#ff6', pointBorderColor: '#fff', pointRadius: 4, tension: 0.2, fill: true, spanGaps: true }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#eee', font: { family: 'Courier New', size: 12 } } }, tooltip: { callbacks: { label: c => `分数: ${c.parsed.y}`, afterLabel: c => `📅 ${dateTimes[c.dataIndex] || ''}` } } }, scales: { x: { ticks: { color: '#aaa', maxTicksLimit: 20, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }, y: { ticks: { color: '#aaa', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: false } } }
+        });
+
+        const colors = { '政治': '#60a5fa', '常识': '#ff6b6b', '言语': '#4ecdc4', '数量': '#ffe66d', '判断': '#a78bfa', '资料': '#f472b6' };
+        const datasets = ALL_MODULES.map(mod => ({
+            label: mod,
+            data: sorted.map(r => {
+                const v = parseAccuracy((r.accuracies || {})[mod]);
+                return v || null;
+            }),
+            borderColor: colors[mod],
+            backgroundColor: colors[mod] + '22',
+            borderWidth: 2,
+            pointBackgroundColor: colors[mod],
+            pointBorderColor: '#fff',
+            pointRadius: 3,
+            tension: 0.2,
+            fill: false,
+            spanGaps: true,
+        }));
+
+        if (examModulesChart) { examModulesChart.destroy(); examModulesChart = null; }
+        const ctx2 = examModulesChartCanvas.getContext('2d');
+        examModulesChart = new Chart(ctx2, {
+            type: 'line',
+            data: { labels, datasets },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#eee', font: { family: 'Courier New', size: 12 }, boxWidth: 14 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y}%`, afterLabel: c => `📅 ${dateTimes[c.dataIndex] || ''}` } } }, scales: { x: { ticks: { color: '#aaa', maxTicksLimit: 20, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }, y: { ticks: { color: '#aaa', callback: v => v + '%', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' }, min: 0, max: 100 } } }
+        });
+    }
+
+    // ==================== 设置 / 导入导出 / Gist 同步 ====================
+    function getAppSettings() {
+        try { return JSON.parse(localStorage.getItem(SETTINGS_STORAGE)) || {}; } catch { return {}; }
+    }
+    function saveAppSettings(s) { localStorage.setItem(SETTINGS_STORAGE, JSON.stringify(s)); }
+
+    const settingsModal = document.getElementById('settingsModal');
+    const gistTokenInput = document.getElementById('gistToken');
+    const gistIdInput = document.getElementById('gistId');
+    const gistStatusDiv = document.getElementById('gistStatus');
+    const importFileInput = document.getElementById('importFileInput');
+
+    function setGistStatus(msg, type) {
+        gistStatusDiv.textContent = msg;
+        gistStatusDiv.className = 'gist-status' + (type ? ' ' + type : '');
+    }
+
+    function collectAllData() {
+        return {
+            version: 1,
+            app: 'burn-in-timer',
+            exportedAt: new Date().toISOString(),
+            moduleRecords: getModuleRecords(),
+            examRecords: getExamRecords()
+        };
+    }
+
+    function openSettings() {
+        const s = getAppSettings();
+        if (gistTokenInput && s.gistToken) gistTokenInput.value = s.gistToken;
+        if (gistIdInput && s.gistId) gistIdInput.value = s.gistId;
+
+        if (s.lastSync) {
+            const t = new Date(s.lastSync).toLocaleString('zh-CN', { hour12: false });
+            setGistStatus(`✅ 上次同步：${t}`, 'ok');
+        } else {
+            setGistStatus('未同步');
+        }
+        settingsModal.classList.add('active');
+        showControls();
+    }
+    function closeSettings() { settingsModal.classList.remove('active'); }
+
+    function exportAllData() {
+        const data = collectAllData();
+        if (data.moduleRecords.length === 0 && data.examRecords.length === 0) {
+            setGistStatus('⚠️ 暂无数据可导出', 'err');
+            return;
+        }
+        const json = JSON.stringify(data, null, 2);
+        downloadFile(json, `timer_backup_${new Date().toISOString().slice(0,10)}.json`, 'application/json;charset=utf-8;');
+        setGistStatus(`✅ 已导出（模块 ${data.moduleRecords.length} 条，考试 ${data.examRecords.length} 条）`, 'ok');
+    }
+
+    function importDataFromJson(jsonStr) {
+        let data;
+        try { data = JSON.parse(jsonStr); } catch { setGistStatus('❌ 文件格式错误', 'err'); return; }
+        if (!data || typeof data !== 'object') { setGistStatus('❌ 数据无效', 'err'); return; }
+
+        const modCount = Array.isArray(data.moduleRecords) ? data.moduleRecords.length : 0;
+        const examCount = Array.isArray(data.examRecords) ? data.examRecords.length : 0;
+
+        if (!confirm(`确认导入并替换现有数据？\n\n模块记录：${modCount} 条\n考试记录：${examCount} 条\n\n此操作不可撤销，当前数据将被覆盖。`)) return;
+
+        if (Array.isArray(data.moduleRecords)) saveModuleRecords(data.moduleRecords);
+        if (Array.isArray(data.examRecords)) saveExamRecords(data.examRecords);
+
+        setGistStatus('✅ 导入成功，即将刷新页面...', 'ok');
+        setTimeout(() => location.reload(), 900);
+    }
+
+    async function findExistingBackupGist(token) {
+        try {
+            const res = await fetch('https://api.github.com/gists?per_page=100', {
+                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
+            });
+            if (!res.ok) return null;
+            const gists = await res.json();
+            let target = gists.find(g => g.description === '防烧屏计时器 · 数据备份' && g.files && g.files['timer_data.json']);
+            if (!target) { target = gists.find(g => g.files && g.files['timer_data.json']); }
+            return target ? target.id : null;
+        } catch (e) { console.warn('查找 Gist 失败:', e); return null; }
+    }
+
+    async function syncToGist(options = {}) {
+        const silent = options.silent === true;
+        const token = gistTokenInput.value.trim();
+        if (!token) {
+            if (!silent) setGistStatus('❌ 请填写 GitHub Token', 'err');
+            return;
+        }
+
+        const s = getAppSettings();
+        s.gistToken = token;
+        saveAppSettings(s);
+
+        let gistId = (gistIdInput.value.trim()) || s.gistId || '';
+
+        if (!gistId) {
+            setGistStatus('⏳ 查找已有备份...', 'loading');
+            gistId = await findExistingBackupGist(token);
+            if (gistId) {
+                gistIdInput.value = gistId;
+                s.gistId = gistId;
+                saveAppSettings(s);
+            }
+        }
+
+        const localData = collectAllData();
+        const localCount = localData.moduleRecords.length + localData.examRecords.length;
+
+        try {
+            let remoteData = null;
+            if (gistId) {
+                setGistStatus('⏳ 读取远程数据...', 'loading');
+                try {
+                    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+                        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
+                    });
+                    if (res.ok) {
+                        const result = await res.json();
+                        const file = result.files && result.files['timer_data.json'];
+                        if (file) {
+                            let content = file.truncated && file.raw_url ? await (await fetch(file.raw_url)).text() : file.content;
+                            remoteData = JSON.parse(content);
+                        }
+                    }
+                } catch (e) { console.warn('拉取远程失败:', e); }
+            }
+
+            const remoteCount = remoteData ? (remoteData.moduleRecords?.length || 0) + (remoteData.examRecords?.length || 0) : 0;
+
+            if (silent) {
+                if (localCount === 0 && remoteCount > 0) {
+                    if (Array.isArray(remoteData.moduleRecords)) saveModuleRecords(remoteData.moduleRecords);
+                    if (Array.isArray(remoteData.examRecords)) saveExamRecords(remoteData.examRecords);
+                    const s3 = getAppSettings();
+                    s3.lastSync = Date.now();
+                    saveAppSettings(s3);
+                    setTimeout(() => location.reload(), 500);
+                } else if (localCount > 0 && remoteCount > localCount) {
+                    setGistStatus(`ℹ️ 远程有 ${remoteCount} 条，本地 ${localCount} 条，建议手动同步`, 'ok');
+                }
+                return;
+            }
+
+            let finalData;
+            if (localCount === 0 && remoteCount > 0) {
+                if (!confirm(`本地无数据，远程有 ${remoteCount} 条。\n\n是否从远程下载到本地？`)) { setGistStatus('已取消'); return; }
+                if (Array.isArray(remoteData.moduleRecords)) saveModuleRecords(remoteData.moduleRecords);
+                if (Array.isArray(remoteData.examRecords)) saveExamRecords(remoteData.examRecords);
+                const s3 = getAppSettings();
+                s3.lastSync = Date.now();
+                saveAppSettings(s3);
+                setGistStatus(`✅ 已下载 ${remoteCount} 条，即将刷新...`, 'ok');
+                setTimeout(() => location.reload(), 900);
+                return;
+            } else if (localCount > 0 && remoteCount > 0) {
+                finalData = mergeData(localData, remoteData);
+                saveModuleRecords(finalData.moduleRecords);
+                saveExamRecords(finalData.examRecords);
+            } else {
+                finalData = localData;
+            }
+
+            setGistStatus('⏳ 上传中...', 'loading');
+            const body = {
+                description: '防烧屏计时器 · 数据备份',
+                files: { 'timer_data.json': { content: JSON.stringify(finalData, null, 2) } }
+            };
+            if (!gistId) body.public = false;
+
+            const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github+json' };
+            const res = gistId
+                ? await fetch(`https://api.github.com/gists/${gistId}`, { method: 'PATCH', headers, body: JSON.stringify(body) })
+                : await fetch('https://api.github.com/gists', { method: 'POST', headers, body: JSON.stringify(body) });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || `HTTP ${res.status}`);
+            }
+            const result = await res.json();
+
+            const s2 = getAppSettings();
+            s2.gistToken = token;
+            s2.gistId = result.id;
+            s2.lastSync = Date.now();
+            saveAppSettings(s2);
+
+            const total = finalData.moduleRecords.length + finalData.examRecords.length;
+            setGistStatus(`✅ 同步成功（共 ${total} 条）\n上次同步：${new Date().toLocaleString('zh-CN', { hour12: false })}`, 'ok');
+        } catch (e) {
+            setGistStatus(`❌ 同步失败：${e.message}`, 'err');
+        }
+    }
+
+    function mergeData(local, remote) {
+        const merge = (a, b) => {
+            const map = new Map();
+            [...(a || []), ...(b || [])].forEach(r => { if (r && r.timestamp) map.set(r.timestamp, r); });
+            return [...map.values()].sort((x, y) => x.timestamp - y.timestamp);
+        };
+        return {
+            version: 1, app: 'burn-in-timer', exportedAt: new Date().toISOString(),
+            moduleRecords: merge(local.moduleRecords, remote.moduleRecords),
+            examRecords: merge(local.examRecords, remote.examRecords)
+        };
+    }
+
+    function triggerImportFile() { importFileInput.click(); }
+    function handleImportFile(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => importDataFromJson(ev.target.result);
+        reader.readAsText(file, 'utf-8');
+        e.target.value = '';
+    }
+
+    // ==================== 事件绑定 ====================
+    startBtn.addEventListener('click', toggleTimer);
+    resetBtn.addEventListener('click', resetTimer);
+    fullscreenBtn.addEventListener('click', toggleFullscreen);
+    document.getElementById('moduleBtn').addEventListener('click', openModuleMenu);
+    document.getElementById('examBtn').addEventListener('click', openExamMenu);
+
+    document.getElementById('closeModuleMenu').addEventListener('click', closeModuleMenu);
+    document.getElementById('moduleRecordBtn').addEventListener('click', () => { closeModuleMenu(); openModuleRecordModal(null); });
+    document.getElementById('moduleViewBtn').addEventListener('click', () => { closeModuleMenu(); openModuleViewModal(); });
+    document.getElementById('moduleChartBtn').addEventListener('click', () => { closeModuleMenu(); openModuleChartModal(); });
+
+    document.getElementById('closeExamMenu').addEventListener('click', closeExamMenu);
+    document.getElementById('examRecordBtn').addEventListener('click', () => { closeExamMenu(); openExamRecordModal(null); });
+    document.getElementById('examViewBtn').addEventListener('click', () => { closeExamMenu(); openExamViewModal(); });
+    document.getElementById('examChartBtn').addEventListener('click', () => { closeExamMenu(); openExamChartModal(); });
+
+    document.getElementById('closeModuleRecord').addEventListener('click', closeModuleRecordModal);
+    document.getElementById('cancelModuleRecord').addEventListener('click', closeModuleRecordModal);
+    document.getElementById('saveModuleRecord').addEventListener('click', saveModuleRecord);
+
+    document.getElementById('closeModuleView').addEventListener('click', closeModuleViewModal);
+    document.getElementById('clearModuleRecords').addEventListener('click', clearAllModuleRecords);
+    document.getElementById('exportModuleCsv').addEventListener('click', () => exportModuleRecords('csv'));
+    document.getElementById('exportModuleTxt').addEventListener('click', () => exportModuleRecords('txt'));
+
+    document.getElementById('closeModuleChart').addEventListener('click', closeModuleChartModal);
+    chartModuleSelect.addEventListener('change', generateModuleChart);
+
+    document.getElementById('closeExamRecord').addEventListener('click', closeExamRecordModal);
+    document.getElementById('cancelExamRecord').addEventListener('click', closeExamRecordModal);
+    document.getElementById('saveExamRecord').addEventListener('click', saveExamRecord);
+
+    document.getElementById('closeExamView').addEventListener('click', closeExamViewModal);
+    document.getElementById('clearExamRecords').addEventListener('click', clearAllExamRecords);
+    document.getElementById('exportExamCsv').addEventListener('click', () => exportExamRecords('csv'));
+    document.getElementById('exportExamTxt').addEventListener('click', () => exportExamRecords('txt'));
+
+    document.getElementById('closeExamChart').addEventListener('click', closeExamChartModal);
+    document.querySelectorAll('.chart-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            if (this.dataset.tab === 'score') {
+                scoreChartContainer.style.display = 'block';
+                modulesChartContainer.style.display = 'none';
+                if (examScoreChart) examScoreChart.resize();
+            } else {
+                scoreChartContainer.style.display = 'none';
+                modulesChartContainer.style.display = 'block';
+                if (examModulesChart) examModulesChart.resize();
+            }
+        });
+    });
+
+    document.getElementById('settingsBtn').addEventListener('click', openSettings);
+    document.getElementById('closeSettings').addEventListener('click', closeSettings);
+    document.getElementById('exportAllBtn').addEventListener('click', exportAllData);
+    document.getElementById('importAllBtn').addEventListener('click', triggerImportFile);
+    importFileInput.addEventListener('change', handleImportFile);
+    document.getElementById('syncGistBtn').addEventListener('click', syncToGist);
+    settingsModal.addEventListener('click', e => { if (e.target === settingsModal) closeSettings(); });
+
+    gistTokenInput.addEventListener('input', () => {
+        const s = getAppSettings();
+        s.gistToken = gistTokenInput.value.trim();
+        saveAppSettings(s);
+    });
+    gistIdInput && gistIdInput.addEventListener('input', () => {
+        const s = getAppSettings();
+        s.gistId = gistIdInput.value.trim();
+        saveAppSettings(s);
+    });
+
+    moduleMenuModal.addEventListener('click', e => { if (e.target === moduleMenuModal) closeModuleMenu(); });
+    moduleRecordModal.addEventListener('click', e => { if (e.target === moduleRecordModal) closeModuleRecordModal(); });
+    moduleViewModal.addEventListener('click', e => { if (e.target === moduleViewModal) closeModuleViewModal(); });
+    moduleChartModal.addEventListener('click', e => { if (e.target === moduleChartModal) closeModuleChartModal(); });
+    examMenuModal.addEventListener('click', e => { if (e.target === examMenuModal) closeExamMenu(); });
+    examRecordModal.addEventListener('click', e => { if (e.target === examRecordModal) closeExamRecordModal(); });
+    examViewModal.addEventListener('click', e => { if (e.target === examViewModal) closeExamViewModal(); });
+    examChartModal.addEventListener('click', e => { if (e.target === examChartModal) closeExamChartModal(); });
+
+    window.addEventListener('beforeunload', () => {
+        if (wakeLock) wakeLock.release().catch(() => {});
+        if (moduleChart) moduleChart.destroy();
+        if (examScoreChart) examScoreChart.destroy();
+        if (examModulesChart) examModulesChart.destroy();
+    });
+
+    updateDisplay();
+    (function preloadGistSettings() {
+        const s = getAppSettings();
+        if (s.gistToken) gistTokenInput.value = s.gistToken;
+        if (s.gistId) gistIdInput && (gistIdInput.value = s.gistId);
+    })();
+
+    statusHint.textContent = wakeLockSupported ? '⚡ 自动常亮' : '⚠️ 仅计时 (无常亮)';
+    setTimeout(() => {
+        const s = getAppSettings();
+        if (s.gistToken) { syncToGist({ silent: true }); }
+    }, 800);
+})();
+    </script>
+</body>
+</html>

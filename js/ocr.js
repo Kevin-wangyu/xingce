@@ -868,7 +868,6 @@ function bindCollectEvents() {
     }
 
     // 已存在的知识点删除（纯 DOM 操作，不 renderView）
-    // 已存在的知识点删除（纯 DOM 操作，不 renderView）
     card.querySelectorAll('[data-kp-del]').forEach(b => {
       b.addEventListener('click', e => {
         e.preventDefault();
@@ -891,11 +890,56 @@ function bindCollectEvents() {
         renderView();
       });
     }
-    // 绑定星级
-    const starTarget = card.querySelector(`[data-star-target="${qi}"]`);
-    if (starTarget) {
-      bindStarPickers(starTarget, (v) => {
+    // 阻止点击 summary 控制区时折叠卡片
+    const summaryEl = card.querySelector('summary');
+    if (summaryEl) {
+      summaryEl.addEventListener('click', (e) => {
+        if (e.target.closest('.summary-controls')) {
+          e.preventDefault();
+        }
+      });
+    }
+
+    // ====== 正确答案双向同步 ======
+    const correctSum = card.querySelector('[data-field="correct-summary"]');
+    const correctDetail = card.querySelector('[data-field="correct"]');
+    if (correctSum && correctDetail) {
+      correctSum.addEventListener('change', () => {
+        correctDetail.value = correctSum.value;
+        p.correctIdx = parseInt(correctSum.value);
+      });
+      correctDetail.addEventListener('change', () => {
+        correctSum.value = correctDetail.value;
+      });
+    }
+
+    // ====== 误选选项双向同步 ======
+    const wrongSum = card.querySelector('[data-field="wrong-summary"]');
+    const wrongDetail = card.querySelector('[data-field="wrong-choice"]');
+    if (wrongSum && wrongDetail) {
+      wrongSum.addEventListener('change', () => {
+        wrongDetail.value = wrongSum.value;
+        p.wrongIdx = parseInt(wrongSum.value);
+      });
+      wrongDetail.addEventListener('change', () => {
+        wrongSum.value = wrongDetail.value;
+      });
+    }
+
+    // ====== 星级双向同步 ======
+    const summaryStarWrap = card.querySelector('.summary-stars');
+    const detailStarWrap = card.querySelector('.detail-stars');
+    
+    if (summaryStarWrap) {
+      bindStarPickers(summaryStarWrap, (v) => {
         p.stars = v;
+        updateStarsUI(detailStarWrap, v);
+      });
+    }
+    if (detailStarWrap) {
+      bindStarPickers(detailStarWrap, (v) => {
+        p.stars = v;
+        updateStarsUI(summaryStarWrap, v);
       });
     }
 
@@ -951,23 +995,32 @@ function bindCollectEvents() {
     const toSave = [];
     const errors = [];
 
-    cards.forEach(card => {
-      const qi = parseInt(card.dataset.qi);
-      const p = s.parsedList[qi];
-      if (!p) return;
+      // 辅助安全取值函数
+      const getVal = (card, selector, fallback = '') => {
+        const el = card.querySelector(selector);
+        return el && el.value !== undefined ? el.value.trim() : fallback;
+      };
 
-      const stem = stripStemPrefix(card.querySelector('[data-field="stem"]').value);
-      const options = [0,1,2,3].map(i => stripOptionPrefix(card.querySelector(`[data-field="opt-${i}"]`).value.trim()));
-      const correctIdx = parseInt(card.querySelector('[data-field="correct"]').value);
-      const wrongIdx = parseInt(card.querySelector('[data-field="wrong-choice"]').value);
-      if (wrongIdx === correctIdx) {
-        errors.push(`第 ${qi + 1} 题：正确答案和误选不能相同`);
-        return;
-      }
-      const module = card.querySelector('[data-field="module"]').value;
-      const type = card.querySelector('[data-field="type"]').value;
-      const explanation = card.querySelector('[data-field="expl"]').value.trim();
-      const source = card.querySelector('[data-field="source"]').value.trim();
+      cards.forEach(card => {
+        const qi = parseInt(card.dataset.qi);
+        const p = s.parsedList[qi];
+        if (!p) return;
+
+        const stem = getVal(card, '[data-field="stem"]');
+        const options = [0, 1, 2, 3].map(i => getVal(card, `[data-field="opt-${i}"]`));
+        
+        // 安全读取正确答案
+        const correctEl = card.querySelector('[data-field="correct"]');
+        const correctIdx = correctEl ? parseInt(correctEl.value) : -1;
+        
+        // 安全读取误选
+        const wrongEl = card.querySelector('[data-field="wrong-choice"]');
+        const wrongIdx = wrongEl ? parseInt(wrongEl.value) : -1;
+        
+        const module = getVal(card, '[data-field="module"]', '言语理解');
+        const type = getVal(card, '[data-field="type"]', '逻辑填空');
+        const explanation = getVal(card, '[data-field="expl"]');
+        const source = getVal(card, '[data-field="source"]');
 
       if (!stem) { errors.push(`第 ${qi + 1} 题：题干为空`); return; }
       if (options.some(o => !o)) { errors.push(`第 ${qi + 1} 题：选项不完整`); return; }

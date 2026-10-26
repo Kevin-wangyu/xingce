@@ -261,22 +261,45 @@ function renderParsedCard(p, qi) {
   const typeOptions = CATEGORIES[p.module] || [];
   const knownType = typeOptions.includes(p.type) ? p.type : typeOptions[0];
   const answerLetter = p.correctIdx >= 0 ? String.fromCharCode(65 + p.correctIdx) : '';
-  let answerTag;
-  if (p.correctIdx < 0) {
-    answerTag = `<span class="tag warn" style="animation:pulse 2s infinite">⚠️ 请手动选答案</span>`;
-  } else if (p.answerConfidence === 'explicit') {
-    answerTag = `<span class="tag success" title="OCR 中有明确答案标记">答案 ${answerLetter}</span>`;
-  } else {
-    answerTag = `<span class="tag" style="background:var(--warn-soft);color:var(--warn)" title="AI 根据语义推断，请核对">🤖 推断答案 ${answerLetter}</span>`;
-  }
+  
+  if (typeof p.wrongIdx === 'undefined') p.wrongIdx = -1;
+
+  // 快捷下拉框选项
+  const correctOptions = ['-1', '0', '1', '2', '3'].map(v => {
+    let label = v === '-1' ? '?' : String.fromCharCode(65 + parseInt(v));
+    return `<option value="${v}" ${p.correctIdx == v ? 'selected' : ''}>${label}</option>`;
+  }).join('');
+
+  const wrongOptions = ['-1', '0', '1', '2', '3'].map(v => {
+    let label = v === '-1' ? '-' : String.fromCharCode(65 + parseInt(v));
+    return `<option value="${v}" ${p.wrongIdx == v ? 'selected' : ''}>${label}</option>`;
+  }).join('');
 
   return `
-    <details ${qi === 0 ? 'open' : ''} class="parsed-card" data-qi="${qi}" style="margin-top:12px;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+    <details class="parsed-card" data-qi="${qi}" style="margin-top:12px;border:1px solid var(--border);border-radius:10px;overflow:hidden">
       <summary style="padding:13px 16px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;gap:10px;background:var(--bg);list-style:none">
         <span class="tag primary" style="flex-shrink:0">第 ${qi + 1} 题</span>
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2)">${esc((p.stem || '').slice(0, 50))}${(p.stem || '').length > 50 ? '…' : ''}</span>
-        ${answerTag}
-        <span style="color:var(--text-3);font-size:11px;flex-shrink:0">${esc(p.module)} · ${esc(p.type || '未定')}</span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2)">${esc((p.stem || '').slice(0, 30))}${(p.stem || '').length > 30 ? '…' : ''}</span>
+        
+        <div class="summary-controls">
+          <div class="mini-group">
+            <span>对</span>
+            <select data-field="correct-summary" class="mini-select">
+              ${correctOptions}
+            </select>
+          </div>
+          <div class="mini-group">
+            <span>错</span>
+            <select data-field="wrong-summary" class="mini-select">
+              ${wrongOptions}
+            </select>
+          </div>
+          <div class="summary-stars" data-summary-star-target="${qi}">
+            ${renderStars(p.stars || 0, { size: 14, interactive: true })}
+          </div>
+        </div>
+
+        <span style="color:var(--text-3);font-size:11px;flex-shrink:0;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.module)} · ${esc(p.type || '未定')}</span>
       </summary>
       <div style="padding:14px 18px 18px">
         <label>题干 <span class="req">*</span></label>
@@ -300,9 +323,9 @@ function renderParsedCard(p, qi) {
             </select>
           </div>
           <div>
-            <label>我误选了 <span style="font-weight:400;color:var(--text-3)">（便于AI分析错因）</span></label>
+            <label>我误选了</label>
             <select data-field="wrong-choice" class="input">
-              <option value="-1">— 未记录 —</option>
+              <option value="-1" ${p.wrongIdx === -1 ? 'selected' : ''}>— 未记录 —</option>
               ${['A','B','C','D'].map((L,i)=>`<option value="${i}" ${p.wrongIdx === i ? 'selected' : ''}>选项 ${L}</option>`).join('')}
             </select>
           </div>
@@ -323,19 +346,6 @@ function renderParsedCard(p, qi) {
           </div>
         </div>
 
-        <div class="row2">
-          <div>
-            <label>题型 <span class="req">*</span></label>
-            <select data-field="type" class="input">
-              ${typeOptions.map(t => `<option value="${esc(t)}" ${t === knownType ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label>来源（可选）</label>
-            <input data-field="source" class="input" value="${esc(p.source)}" placeholder="如：2023国考第32题">
-          </div>
-        </div>
-
         <div style="display:flex;gap:14px;align-items:flex-start;margin-top:14px;flex-wrap:wrap">
           <div style="flex:1;min-width:240px">
             <label style="margin-top:0">考察知识点 <span class="req">*</span></label>
@@ -349,7 +359,7 @@ function renderParsedCard(p, qi) {
           <div style="flex-shrink:0;padding-top:2px">
             <label style="margin-top:0">重要性</label>
             <div style="padding:8px 4px 0">
-              <div data-star-target="${qi}">${renderStars(p.stars || 0, { size: 20, interactive: true })}</div>
+              <div class="detail-stars" data-star-target="${qi}">${renderStars(p.stars || 0, { size: 20, interactive: true })}</div>
             </div>
           </div>
         </div>
@@ -361,10 +371,7 @@ function renderParsedCard(p, qi) {
           const imgCount = state.collect.images.filter(img => img.imageId).length;
           const isGraphic = (p.module === '判断推理' && p.type === '图形推理') || p.module === '资料分析';
           const disabled = imgCount === 0;
-          // 初始化 selectedImageIds（如果还没初始化过）
-          if (!Array.isArray(p.selectedImageIds)) {
-            p.selectedImageIds = [];   // 默认全不选，用户手动勾
-          }
+          if (!Array.isArray(p.selectedImageIds)) p.selectedImageIds = [];
           const selectedSet = new Set(p.selectedImageIds);
           return `
             <div style="margin-top:16px;padding:12px 16px;background:var(--bg);border-radius:10px;border:1px solid var(--border)">
@@ -372,9 +379,9 @@ function renderParsedCard(p, qi) {
                 <div style="font-size:13px;font-weight:600;color:${disabled ? 'var(--text-3)' : 'var(--text)'}">
                   🖼️ 保存哪些图片
                   <span style="font-size:11px;color:var(--text-3);font-weight:400;margin-left:6px">
-                  ${disabled ? '（本次未上传图片）' :
-                    isGraphic ? '（图形/图表题建议选图，请手动勾选）' :
-                    '（默认不选，点缩略图选中）'}
+                    ${disabled ? '（本次未上传图片）' :
+                      isGraphic ? '（图形/图表题建议选图，请手动勾选）' :
+                      '（默认不选，点缩略图选中）'}
                   </span>
                 </div>
                 ${!disabled ? `
