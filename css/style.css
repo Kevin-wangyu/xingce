@@ -2299,7 +2299,7 @@ details.card.collapsible > .card-body {
 .detail-stars {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px; border-radius: 6px;
-  background: var(--warn-soft);
+  background: white;
   font-size: 12px; color: var(--warn); font-weight: 700;
 }
 @media (max-width: 640px) {
