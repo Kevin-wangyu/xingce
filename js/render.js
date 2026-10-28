@@ -184,23 +184,21 @@ function renderCollect(view) {
   // 只有还有图片时才显示 ② 核对 OCR 文本（防止保存后残留）
   const hasImagesForOcr = s.images.length > 0;
   const textForTextarea = hasImagesForOcr ? (s.editedOcrText || mergedOcrText()) : '';
-  if (textForTextarea) {
-    html += `
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">② 核对 OCR 文本</div>
-            <div class="card-sub">${s.images.length > 1 ? `已合并 ${s.images.filter(i => i.status === 'done').length} 张图的内容 · ` : ''}发现识别错误可直接修改，改完再让 AI 结构化</div>
-          </div>
-        </div>
-        <textarea id="ocrTextarea" class="input" rows="10" placeholder="OCR 原文...">${esc(textForTextarea)}</textarea>
-        <div style="font-size:12px;color:var(--text-3);margin-top:8px;line-height:1.7;padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
-          💡 <b>常见 OCR 错误</b>：带圈数字 ①②③④ 常被识别为 <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace">@ O @@ GOG@</code>。
-          AI 会尝试根据上下文还原；如果错误太多，可手动改成 <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace">(1) (2) (3) (4)</code> 形式，AI 更容易理解。
+  html += `
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">② 核对 OCR 文本</div>
+          <div class="card-sub">${s.images.length > 1 ? `已合并 ${s.images.filter(i => i.status === 'done').length} 张图的内容 · ` : ''}发现识别错误可直接修改，改完再让 AI 结构化</div>
         </div>
       </div>
-    `;
-  }
+      <textarea id="ocrTextarea" class="input" rows="10" placeholder="OCR 原文...">${esc(textForTextarea)}</textarea>
+      <div style="font-size:12px;color:var(--text-3);margin-top:8px;line-height:1.7;padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+        💡 <b>常见 OCR 错误</b>：带圈数字 ①②③④ 常被识别为 <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace">@ O @@ GOG@</code>。
+        AI 会尝试根据上下文还原；如果错误太多，可手动改成 <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace">(1) (2) (3) (4)</code> 形式，AI 更容易理解。
+      </div>
+    </div>
+  `;
 
   if (s.parsedList.length) {
     html += `

@@ -963,7 +963,6 @@ function bindCollectEvents() {
     });
 
     // 全选 / 全不选
-    // 全选 / 全不选
     const selAllBtn = card.querySelector('[data-img-select-all]');
     if (selAllBtn) selAllBtn.addEventListener('click', () => {
       syncAllParsedCardsToState();   // ← 先同步其他卡片
@@ -1020,7 +1019,9 @@ function bindCollectEvents() {
         const module = getVal(card, '[data-field="module"]', '言语理解');
         const type = getVal(card, '[data-field="type"]', '逻辑填空');
         const explanation = getVal(card, '[data-field="expl"]');
-        const source = getVal(card, '[data-field="source"]');
+        let source = getVal(card, '[data-field="source"]');
+        // 如果卡片里没填，兜底使用顶部①卡片里填写的全局来源
+        if (!source) source = state.collect.sourceInput || '';
 
       if (!stem) { errors.push(`第 ${qi + 1} 题：题干为空`); return; }
       if (options.some(o => !o)) { errors.push(`第 ${qi + 1} 题：选项不完整`); return; }
